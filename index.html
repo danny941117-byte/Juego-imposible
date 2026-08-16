@@ -54,7 +54,7 @@ const levels=[
 ];
 
 const player={x:100,y:0,w:30,h:38,vx:0,vy:0,onGround:false};
-let level=0, worldX=0, checkpoint=100, score=0, state="play", jumpLock=false;
+let level=0, worldX=0, checkpoint=100, checkpointY=0, score=0, state="play", jumpLock=false;
 const keys={left:false,right:false,jump:false};
 const gravity=1750, speed=330, jump=-600;
 let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
@@ -146,7 +146,7 @@ function makeLevel(){
  goal.y=floorY-90;
  platforms.push({x:x,y:floorY,w:260,h:40});
  player.x=100; player.y=floorY-player.h; player.vx=0; player.vy=0;
- checkpoint=100; worldX=0;
+ checkpoint=100; checkpointY=floorY; worldX=0;
  document.getElementById('zone').textContent=level+1;
  show('Zona '+(level+1),'Cada llegada tiene más obstáculos 😈');
  save();
@@ -156,7 +156,9 @@ function load(){try{let s=JSON.parse(localStorage.getItem("obstaculosSave"));if(
 load();makeLevel();
 
 function respawn(){
- player.x=checkpoint;player.y=H*.72-player.h;player.vx=player.vy=0;
+ player.x=checkpoint;
+ player.y=checkpointY-player.h-2;
+ player.vx=0; player.vy=0; player.onGround=true;
  show("💥 ¡Cuidado!","Sin límite de vidas — vuelve a intentarlo");
 }
 function show(t,s){msgTitle.textContent=t;msgText.textContent=s;msg.style.display="block";setTimeout(()=>{if(state==="play")msg.style.display="none"},1200)}
@@ -196,13 +198,19 @@ function update(dt,t){
    if(p.vanish && p.t<=0)continue;
    if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){
      player.y=p.y-player.h;player.vy=0;player.onGround=true;
-     if(player.x>checkpoint+260){checkpoint=player.x; score+=5}
+     if(!p.move && !p.vanish && player.x>checkpoint+120){
+       checkpoint=player.x;
+       checkpointY=p.y;
+       score+=5;
+     }
    }
  }
+ let dead=false;
  for(const h of hazards){
-   if(h.type==="spikes"&&player.x+player.w>h.x&&player.x<h.x+h.w&&player.y+player.h>h.y&&player.y<h.y+h.h)respawn();
+   if(h.type==="spikes"&&player.x+player.w>h.x&&player.x<h.x+h.w&&player.y+player.h>h.y&&player.y<h.y+h.h){dead=true;break;}
  }
- if(player.y>H+150)respawn();
+ if(player.y>H+150) dead=true;
+ if(dead){respawn(); return;}
  for(const coin of coins){if(!coin.got&&Math.hypot(player.x+16-coin.x,player.y+20-coin.y)<28){coin.got=true;score+=10}}
  if(player.x>goal.x){
    if(level<levels.length-1){level++;score+=100;show("¡Zona superada!","La siguiente cadena de obstáculos será más difícil 😈");makeLevel()}
