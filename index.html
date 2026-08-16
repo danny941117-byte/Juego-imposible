@@ -492,6 +492,75 @@ function draw(t){
 function loop(now){const dt=Math.min(.033,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop)}
 requestAnimationFrame(loop);
 </script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
+// ===== Controles de reinicio =====
+function restartCurrentLevel(){
+  state = "play";
+  worldX = 0;
+  score = 0;
+  jumpLock = false;
+  justRespawned = false;
+  jumpCount = 0;
+
+  // Regresa al inicio del nivel actual, conservando el nivel.
+  if (typeof levelStartX !== "undefined") {
+    worldX = levelStartX;
+  }
+  if (typeof checkpoint !== "undefined") {
+    checkpoint.x = worldX;
+    checkpoint.y = 0;
+  }
+  if (typeof player !== "undefined") {
+    player.x = 120;
+    player.y = 0;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = false;
+  }
+}
+
+function restartWholeGame(){
+  level = 0;
+  worldX = 0;
+  score = 0;
+  state = "play";
+  jumpLock = false;
+  justRespawned = false;
+  jumpCount = 0;
+
+  if (typeof checkpoint !== "undefined") {
+    checkpoint.x = 100;
+    checkpoint.y = 0;
+  }
+  if (typeof player !== "undefined") {
+    player.x = 120;
+    player.y = 0;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = false;
+  }
+}
+
+document.getElementById("btnRestartLevel").addEventListener("click", restartCurrentLevel);
+document.getElementById("btnRestartGame").addEventListener("click", restartWholeGame);
+
+</script>
+
+<div id="restartControls" style="
+  position:fixed; right:12px; top:12px; z-index:9999;
+  display:flex; flex-direction:column; gap:8px;
+  font-family:system-ui, sans-serif;">
+  <button id="btnRestartLevel" type="button" style="
+    padding:10px 12px; border:1px solid #ffffff55; border-radius:10px;
+    background:#17202b; color:#fff; font-weight:700; font-size:13px;">
+    🔄 Reiniciar nivel
+  </button>
+  <button id="btnRestartGame" type="button" style="
+    padding:10px 12px; border:1px solid #ff666655; border-radius:10px;
+    background:#3a1720; color:#fff; font-weight:700; font-size:13px;">
+    🏠 Reiniciar juego
+  </button>
+</div>
+
 </body>
 </html>
