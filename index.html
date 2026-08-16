@@ -1,1 +1,256 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#101522">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Obstáculos — Juego</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b1020;font-family:system-ui,Arial,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%;background:#101522}
+#ui{position:fixed;inset:0;pointer-events:none;color:#fff}
+.top{position:absolute;top:max(10px,env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between;gap:8px;font-weight:800;text-shadow:0 2px 4px #000}
+.badge{background:#0008;border:1px solid #ffffff22;border-radius:12px;padding:7px 10px;backdrop-filter:blur(5px)}
+#msg{position:absolute;left:50%;top:14%;transform:translateX(-50%);text-align:center;background:#000b;border:1px solid #fff2;border-radius:18px;padding:14px 18px;max-width:90%;display:none}
+#msg b{font-size:1.2rem}
+#controls{position:absolute;left:0;right:0;bottom:max(18px,env(safe-area-inset-bottom));height:100px;display:flex;justify-content:space-between;padding:0 18px;pointer-events:auto}
+.pad{display:flex;gap:12px}
+button{width:76px;height:76px;border:0;border-radius:50%;background:#ffffff18;border:2px solid #ffffff35;color:white;font-size:30px;font-weight:900;box-shadow:0 5px 18px #0007}
+button:active{background:#ffffff38;transform:scale(.96)}
+#jump{background:#276cff55}
+@media(min-width:800px){#controls{max-width:650px;margin:auto}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+  <div class="top">
+    <div class="badge">⭐ <span id="score">0</span></div>
+    <div class="badge">🚩 Zona <span id="zone">1</span></div>
+    <div class="badge">❤️ ∞</div>
+  </div>
+  <div id="msg"><b id="msgTitle"></b><div id="msgText"></div></div>
+  <div id="controls">
+    <div class="pad"><button id="left">◀</button><button id="right">▶</button></div>
+    <button id="jump">⬆</button>
+  </div>
+</div>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+let W,H,DPR=1;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*DPR;c.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',resize); resize();
 
+const levels=[
+ {name:"El comienzo", obstacles:["gap"], width:1800},
+ {name:"Primer reto", obstacles:["spikes","moving"], width:2100},
+ {name:"No te apresures", obstacles:["gap","disappear"], width:2400},
+ {name:"Zona peligrosa", obstacles:["spikes","moving","gap"], width:2700},
+ {name:"La combinación", obstacles:["moving","spikes","disappear","gap"], width:3100},
+ {name:"Último tramo", obstacles:["gap","moving","spikes","spikes","disappear"], width:3500},
+ {name:"META", obstacles:["gap","moving","spikes","disappear","gap","moving"], width:3900}
+];
+
+const player={x:100,y:0,w:32,h:42,vx:0,vy:0,onGround:false};
+let level=0, worldX=0, checkpoint=100, score=0, state="play", jumpLock=false;
+const keys={left:false,right:false,jump:false};
+const gravity=1600, speed=330, jump=-690;
+let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
+let particles=[];
+let obstacleCount=0;
+
+function makeLevel(){
+ const L=levels[level], floorY=H*.72;
+ obstacleCount=0;
+ platforms=[{x:0,y:floorY,w:480,h:40}];
+ hazards=[];coins=[];
+ let x=480;
+ let lastY=floorY;
+
+ // Diseño de dificultad: los apoyos pueden verse pequeños o lejanos,
+ // pero cada transición obligatoria queda dentro de un salto físicamente alcanzable.
+ // Con la física actual, la distancia horizontal segura es <= 190 px y la
+ // diferencia vertical de los apoyos es <= 55 px.
+ const SAFE_GAP=175;
+ const SUPPORT_W=105;
+
+ function support(px,py,w=SUPPORT_W){
+   platforms.push({x:px,y:py,w:w,h:40});
+ }
+ function rest(px,py,w=130){
+   platforms.push({x:px,y:py,w:w,h:40});
+ }
+
+ L.obstacles.forEach((type,i)=>{
+   const base=floorY + ((i%2===1)?-45:0);
+   obstacleCount++;
+
+   if(type==='gap'){
+     // Dos apoyos relativamente estrechos: parece un salto largo, pero el hueco real es seguro.
+     const gap=155;
+     const landingX=x+gap;
+     support(x,base,95);
+     hazards.push({type:'gap',x:x+95,w:gap-95,y:base+5,h:80});
+     support(landingX,base,115);
+     coins.push({x:landingX+48,y:base-68,r:9});
+     x=landingX+115+35;
+     lastY=base;
+   }
+
+   if(type==='spikes'){
+     // La zona de apoyo existe en ambos lados; los pinchos obligan a cronometrar el salto.
+     support(x,base,105);
+     hazards.push({type:'spikes',x:x+42,y:base-24,w:74,h:24});
+     support(x+116,base,105);
+     coins.push({x:x+145,y:base-65,r:9});
+     x=x+221;
+     lastY=base;
+   }
+
+   if(type==='moving'){
+     support(x,base,100);
+     const mx=x+155;
+     // Recorrido corto: aun en su posición más desfavorable, sigue siendo alcanzable.
+     platforms.push({x:mx,y:base-35,w:105,h:40,move:true,startX:mx,range:35,phase:i});
+     support(mx+105+25,base,115);
+     coins.push({x:mx+50,y:base-98,r:9});
+     x=mx+235;
+     lastY=base;
+   }
+
+   if(type==='disappear'){
+     support(x,base,100);
+     support(x+145,base-35,100);
+     support(x+290,base,115);
+     coins.push({x:x+50,y:base-65,r:9});
+     x=x+440;
+     lastY=base;
+   }
+
+   // Descanso pequeño: no hace el nivel fácil, solo evita checkpoints injustos.
+   rest(x,lastY,125);
+   x+=125;
+ });
+
+ goal.x=x+70;
+ goal.y=floorY-90;
+ rest(x,floorY,180);
+ platforms.push({x:goal.x-70,y:floorY,w:140,h:40});
+ player.x=100;
+ player.y=floorY-player.h;
+ player.vx=0;
+ player.vy=0;
+ checkpoint=100;
+ worldX=0;
+ document.getElementById('zone').textContent=level+1;
+ show('Zona '+(level+1),'Difícil, pero físicamente posible 😈');
+ save();
+}
+function save(){localStorage.setItem("obstaculosSave",JSON.stringify({level,score}));}
+function load(){try{let s=JSON.parse(localStorage.getItem("obstaculosSave"));if(s){level=Math.min(s.level||0,levels.length-1);score=s.score||0}}catch(e){}}
+load();makeLevel();
+
+function respawn(){
+ player.x=checkpoint;player.y=H*.72-player.h;player.vx=player.vy=0;
+ show("💥 ¡Cuidado!","Sin límite de vidas — vuelve a intentarlo");
+}
+function show(t,s){msgTitle.textContent=t;msgText.textContent=s;msg.style.display="block";setTimeout(()=>{if(state==="play")msg.style.display="none"},1200)}
+function restart(){level=0;score=0;state="play";msg.style.display="none";makeLevel()}
+
+function press(name,v){keys[name]=v}
+for(const [id,k] of [["left","left"],["right","right"],["jump","jump"]]){
+ const b=document.getElementById(id);
+ b.addEventListener("pointerdown",e=>{e.preventDefault();press(k,true)});
+ b.addEventListener("pointerup",e=>{e.preventDefault();press(k,false)});
+ b.addEventListener("pointercancel",()=>press(k,false));
+ b.addEventListener("pointerleave",()=>press(k,false));
+}
+addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;if(e.key==="ArrowRight"||e.key==="d")keys.right=true;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=true;if(state==="win"&&e.key==="r")restart()});
+addEventListener("keyup",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=false;if(e.key==="ArrowRight"||e.key==="d")keys.right=false;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=false});
+addEventListener("pointerdown",e=>{if(state==="win"){restart()}});
+
+let last=performance.now();
+function update(dt,t){
+ if(state!=="play")return;
+ const floorY=H*.72;
+ platforms.forEach(p=>{
+   if(p.move){p.x=p.startX+Math.sin(t/850+p.phase)*p.range}
+   if(p.vanish){p.t=Math.max(0,p.t-dt); if(p.t===0 && Math.random()<dt*.25)p.t=1.5}
+ });
+ let dir=(keys.right?1:0)-(keys.left?1:0);
+ player.vx += (dir*speed-player.vx)*Math.min(1,dt*8);
+ if(Math.abs(player.vx)<2)player.vx=0;
+ if(keys.jump && !jumpLock && player.onGround){player.vy=jump;player.onGround=false;jumpLock=true}
+ if(!keys.jump)jumpLock=false;
+ player.vy+=gravity*dt;
+ let oldY=player.y;
+ player.x+=player.vx*dt;
+ player.y+=player.vy*dt;
+ player.onGround=false;
+ for(const p of platforms){
+   if(p.vanish && p.t<=0)continue;
+   if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){
+     player.y=p.y-player.h;player.vy=0;player.onGround=true;
+     if(player.x>checkpoint+260){checkpoint=player.x; score+=5}
+   }
+ }
+ for(const h of hazards){
+   if(h.type==="spikes"&&player.x+player.w>h.x&&player.x<h.x+h.w&&player.y+player.h>h.y&&player.y<h.y+h.h)respawn();
+ }
+ if(player.y>H+150)respawn();
+ for(const coin of coins){if(!coin.got&&Math.hypot(player.x+16-coin.x,player.y+20-coin.y)<28){coin.got=true;score+=10}}
+ if(player.x>goal.x){
+   if(level<levels.length-1){level++;score+=100;show("¡Zona superada!","La siguiente cadena de obstáculos será más difícil 😈");makeLevel()}
+   else{state="win";show("🏆 ¡META!","Has superado todas las zonas");save()}
+ }
+ worldX=Math.max(0,player.x-W*.35);
+}
+function draw(t){
+ const floorY=H*.72;
+ ctx.clearRect(0,0,W,H);
+ // sky
+ const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#121c35");g.addColorStop(1,"#25314b");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // distant grid
+ ctx.strokeStyle="#ffffff0d";ctx.lineWidth=1;
+ for(let x=(-worldX%60);x<W;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+ for(let y=H*.18;y<H;y+=60){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+ ctx.save();ctx.translate(-worldX,0);
+ // background lights
+ for(let x=Math.floor(worldX/300)*300;x<worldX+W+300;x+=300){ctx.fillStyle="#ffffff08";ctx.fillRect(x,100,2,450)}
+ // platforms
+ for(const p of platforms){
+   if(p.vanish&&p.t<=0)continue;
+   ctx.fillStyle=p.vanish?"#6e8cff":p.move?"#55d6b0":"#53627f";
+   ctx.fillRect(p.x,p.y,p.w,p.h);
+   ctx.fillStyle="#ffffff30";ctx.fillRect(p.x,p.y,p.w,5);
+ }
+ // hazards
+ for(const h of hazards)if(h.type==="spikes"){
+   ctx.fillStyle="#ff4e68";
+   for(let x=h.x;x<h.x+h.w;x+=18){ctx.beginPath();ctx.moveTo(x,h.y+h.h);ctx.lineTo(x+9,h.y);ctx.lineTo(x+18,h.y+h.h);ctx.fill()}
+ }
+ // coins
+ for(const q of coins)if(!q.got){ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fff4";ctx.beginPath();ctx.arc(q.x-3,q.y-3,3,0,Math.PI*2);ctx.fill()}
+ // goal
+ ctx.fillStyle="#e9eefb";ctx.fillRect(goal.x,goal.y,5,90);ctx.fillStyle="#2ee88a";ctx.beginPath();ctx.moveTo(goal.x+5,goal.y);ctx.lineTo(goal.x+65,goal.y+20);ctx.lineTo(goal.x+5,goal.y+40);ctx.fill();
+ // player
+ ctx.fillStyle="#f2f5ff";ctx.fillRect(player.x,player.y,player.w,player.h);
+ ctx.fillStyle="#6f8cff";ctx.fillRect(player.x+5,player.y+7,7,7);ctx.fillRect(player.x+20,player.y+7,7,7);
+ ctx.fillStyle="#161b2a";ctx.fillRect(player.x+7,player.y+27,18,5);
+ ctx.restore();
+ // prompt
+ if(state==="win"){
+   ctx.fillStyle="#000b";ctx.fillRect(0,0,W,H);
+   ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="800 30px system-ui";
+   ctx.fillText("🏆 META COMPLETADA",W/2,H*.42);
+   ctx.font="600 17px system-ui";ctx.fillText("Toca la pantalla para volver a jugar",W/2,H*.50);
+ }
+ document.getElementById("score").textContent=score;
+ }
+function loop(now){const dt=Math.min(.033,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
