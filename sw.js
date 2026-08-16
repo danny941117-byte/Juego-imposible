@@ -1,4 +1,4 @@
-const CACHE = 'juego-imposible-v12';
+const CACHE = 'juego-imposible-v13';
 const BASE = './';
 const ASSETS = [
   BASE,
