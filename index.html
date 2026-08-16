@@ -16,15 +16,19 @@ canvas{display:block;width:100%;height:100%;background:#101522}
 .badge{background:#0008;border:1px solid #ffffff22;border-radius:12px;padding:7px 10px;backdrop-filter:blur(5px)}
 #msg{position:absolute;left:50%;top:14%;transform:translateX(-50%);text-align:center;background:#000b;border:1px solid #fff2;border-radius:18px;padding:14px 18px;max-width:90%;display:none}
 #msg b{font-size:1.2rem}
-#controls{position:absolute;left:0;right:0;bottom:max(18px,env(safe-area-inset-bottom));height:100px;display:flex;justify-content:space-between;padding:0 18px;pointer-events:auto}
-.pad{display:flex;gap:12px}
-button{width:76px;height:76px;border:0;border-radius:50%;background:#ffffff18;border:2px solid #ffffff35;color:white;font-size:30px;font-weight:900;box-shadow:0 5px 18px #0007}
+#controls{position:fixed;left:0;right:0;bottom:max(14px,env(safe-area-inset-bottom));height:190px;padding:0 18px;pointer-events:none;z-index:20}
+.pad{display:flex;gap:10px;pointer-events:auto}
+#movePad{position:absolute;left:18px;bottom:8px}
+#actionPad{position:absolute;right:18px;bottom:8px}
+button{width:72px;height:72px;border:0;border-radius:50%;background:#ffffff18;border:2px solid #ffffff35;color:white;font-size:30px;font-weight:900;box-shadow:0 5px 18px #0007;touch-action:manipulation}
 button:active{background:#ffffff38;transform:scale(.96)}
-#jump{background:#276cff55}
+#jump{background:#276cff66}
 #weapon{display:none;background:#e09b3d66;border-color:#ffd77a88;font-size:28px}
 #weapon.active{display:block}
-#turbo{display:block;background:#31c8ff22;border-color:#8be8ff55;font-size:25px;opacity:.35}
-#turbo.active{display:block;opacity:1}
+#turbo{position:absolute;left:90px;bottom:86px;width:68px;height:68px;background:#31c8ff22;border-color:#8be8ff55;font-size:25px;opacity:.42;pointer-events:auto}
+#turbo.active{opacity:1;background:#168bd766;box-shadow:0 0 22px #31c8ff99,0 5px 18px #0007}
+#turbo:disabled{cursor:not-allowed}
+@media(max-width:380px){button{width:66px;height:66px}#movePad{left:12px}#actionPad{right:12px}#turbo{left:82px;bottom:80px;width:62px;height:62px}}
 #shopBtn{position:fixed;left:12px;top:72px;z-index:10000;width:auto;height:auto;padding:10px 14px;border-radius:12px;background:#5d3f1fdd;border-color:#ffd45a66;font-size:14px;box-shadow:0 5px 16px #0007;pointer-events:auto}
 #shop{position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;background:#050914cc;pointer-events:auto}
 #shop.open{display:flex}
@@ -47,8 +51,9 @@ button:active{background:#ffffff38;transform:scale(.96)}
   <div id="msg"><b id="msgTitle"></b><div id="msgText"></div></div>
   <button id="shopBtn" type="button">👕 Tienda</button>
   <div id="controls">
-    <div class="pad"><button id="left">◀</button><button id="right">▶</button></div>
-    <div class="pad"><button id="turbo" aria-label="Turbo hacia adelante">⚡</button><button id="weapon" aria-label="Accionar arma">⚔️</button><button id="jump">⬆</button></div>
+    <button id="turbo" aria-label="Turbo hacia adelante">⚡</button>
+    <div id="movePad" class="pad"><button id="left">◀</button><button id="right">▶</button></div>
+    <div id="actionPad" class="pad"><button id="weapon" aria-label="Accionar arma">⚔️</button><button id="jump">⬆</button></div>
   </div>
   <div id="shop" aria-hidden="true">
     <div class="shopCard">
@@ -102,6 +107,8 @@ let bullets=[];
 let boss=null;
 let weaponSwing=0, weaponCooldown=0;
 let particles=[];
+let turboTrail=[];
+let turboActive=0;
 let obstacleCount=0;
 let activeEvents=[];
 let eventCooldown=0;
@@ -110,7 +117,7 @@ function makeLevel(){
  const L=levels[level], floorY=H*.72;
  obstacleCount=0;
  platforms=[{x:0,y:floorY,w:430,h:40}];
- hazards=[];coins=[];floatingObstacles=[];enemies=[];bullets=[];boss=null;activeEvents=[];weaponSwing=0;weaponCooldown=0;turboAvailable=false;turboCooldown=0;
+ hazards=[];coins=[];floatingObstacles=[];enemies=[];bullets=[];boss=null;activeEvents=[];weaponSwing=0;weaponCooldown=0;turboAvailable=false;turboCooldown=0;turboActive=0;turboTrail=[];
  let x=430;
  const difficulty=level+1;
  const GAP=Math.min(215,172+difficulty*6); // más separación sin superar el alcance real
@@ -286,10 +293,9 @@ const weaponBtn=document.getElementById("weapon");
 const turboBtn=document.getElementById("turbo");
 function useTurbo(){
  if(!turboAvailable || turboCooldown>0 || state!=="play") return;
- turboAvailable=false; turboCooldown=1.05;
- player.vx=Math.max(player.vx,720);
- player.x+=150;
- for(let n=0;n<12;n++) particles.push({x:player.x,y:player.y+player.h/2,vx:-80-Math.random()*150,vy:(Math.random()-.5)*90,life:.35});
+ turboAvailable=false; turboCooldown=1.05; turboActive=.34;
+ player.vx=Math.max(player.vx,820);
+ for(let n=0;n<18;n++) particles.push({x:player.x+Math.random()*18,y:player.y+8+Math.random()*28,vx:-180-Math.random()*260,vy:(Math.random()-.5)*130,life:.42});
  show("⚡ TURBO!","¡Impulso hacia adelante!");
 }
 turboBtn.addEventListener("pointerdown",e=>{e.preventDefault();useTurbo()});
@@ -457,6 +463,9 @@ function update(dt,t){
  if(!keys.jump)jumpLock=false;
  turboCooldown=Math.max(0,turboCooldown-dt);
  if(!player.onGround && jumpCount>0 && turboCooldown<=0) turboAvailable=true;
+ turboActive=Math.max(0,turboActive-dt);
+ for(const tr of turboTrail) tr.life-=dt;
+ turboTrail=turboTrail.filter(tr=>tr.life>0);
  player.vy+=gravity*dt;
  let oldY=player.y;
  player.x+=player.vx*dt;
@@ -496,6 +505,10 @@ function update(dt,t){
    }
  }
  for(const b of bullets){ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; }
+ for(const pt of particles){pt.x+=pt.vx*dt;pt.y+=pt.vy*dt;pt.vx*=Math.pow(.04,dt);pt.life-=dt;}
+ particles=particles.filter(pt=>pt.life>0);
+ if(turboActive>0){ turboTrail.push({x:player.x,y:player.y,life:.28}); }
+ turboTrail=turboTrail.filter(tr=>tr.life>0);
  bullets=bullets.filter(b=>b.life>0&&b.x>-500&&b.x<goal.x+800&&b.y>-300&&b.y<H+300);
  for(const b of bullets){
    if(Math.hypot(player.x+player.w/2-b.x,player.y+player.h/2-b.y)<b.r+15){ respawn(); break; }
@@ -639,6 +652,14 @@ function draw(t){
  for(const q of coins)if(!q.got){ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fff4";ctx.beginPath();ctx.arc(q.x-3,q.y-3,3,0,Math.PI*2);ctx.fill()}
  // goal
  ctx.fillStyle="#e9eefb";ctx.fillRect(goal.x,goal.y,5,90);ctx.fillStyle="#2ee88a";ctx.beginPath();ctx.moveTo(goal.x+5,goal.y);ctx.lineTo(goal.x+65,goal.y+20);ctx.lineTo(goal.x+5,goal.y+40);ctx.fill();
+ // Estela del turbo: copias fantasma que desaparecen tras el desplazamiento.
+ for(const tr of turboTrail){
+   const a=Math.max(0,tr.life/.28)*.42;
+   ctx.save();ctx.globalAlpha=a;ctx.fillStyle="#31c8ff";ctx.fillRect(tr.x+3,tr.y+10,25,27);ctx.fillStyle="#8be8ff";ctx.fillRect(tr.x+8,tr.y+3,16,10);ctx.restore();
+ }
+ for(const pt of particles){
+   ctx.save();ctx.globalAlpha=Math.max(0,pt.life/.42);ctx.fillStyle="#31c8ff";ctx.fillRect(pt.x,pt.y,4,4);ctx.restore();
+ }
  // Avatar mejorado + ropa/skin equipada.
  const skin=skins.find(s=>s.id===equippedSkin)||skins[0];
  const walking = Math.abs(player.vx) > 25 && player.onGround;
@@ -708,12 +729,12 @@ document.getElementById("shopClose").addEventListener("click",()=>{shop.classLis
 shop.addEventListener("pointerdown",e=>{if(e.target===shop){shop.classList.remove("open");shop.setAttribute("aria-hidden","true")}});
 if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
 function restartCurrentLevel(){
-  state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0;
+  state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0; turboActive=0; turboTrail=[]; particles=[];
   makeLevel();
   show("🔄 Nivel reiniciado", "Vuelves al inicio de esta zona");
 }
 function restartWholeGame(){
-  level=0; score=0; state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0;
+  level=0; score=0; state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0; turboActive=0; turboTrail=[]; particles=[];
   makeLevel(); save();
   show("🏠 Juego reiniciado", "Has vuelto a la Zona 1");
 }
