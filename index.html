@@ -299,21 +299,36 @@ function useTurbo(){
  show("⚡ TURBO!","¡Impulso hacia adelante!");
 }
 turboBtn.addEventListener("pointerdown",e=>{e.preventDefault();useTurbo()});
+function weaponMode(){
+  if(level>=1 && level<=8) return "sword";   // Zonas 2-9
+  if(level>=9 && level<=14) return "pistol"; // Zonas 10-15
+  return null;
+}
 function useWeapon(){
- if((level!==1 && level<5) || weaponCooldown>0 || state!=="play") return;
- weaponSwing=0.24; weaponCooldown=0.38;
+ if(weaponCooldown>0 || state!=="play") return;
+ const mode=weaponMode();
+ if(!mode) return;
  const cx=player.x+player.w/2, cy=player.y+player.h/2;
- for(const o of floatingObstacles){
-   if(!o.alive) continue;
-   const dx=o.x+o.w/2-cx, dy=o.y+o.h/2-cy;
-   if(Math.hypot(dx,dy)<115 && dx>-35){
-     o.alive=false; score+=20;
-     for(let n=0;n<10;n++) particles.push({x:o.x+o.w/2,y:o.y+o.h/2,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.45});
+ if(mode==="sword"){
+   weaponSwing=0.24; weaponCooldown=0.28;
+   // La espada corta los obstáculos flotantes del laberinto.
+   for(const o of floatingObstacles){
+     if(!o.alive) continue;
+     const dx=o.x+o.w/2-cx, dy=o.y+o.h/2-cy;
+     if(Math.hypot(dx,dy)<125 && dx>-40){
+       o.alive=false; score+=20;
+       for(let n=0;n<10;n++) particles.push({x:o.x+o.w/2,y:o.y+o.h/2,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.45});
+     }
    }
- }
- if(boss){
-   const dx=boss.x+boss.w/2-(player.x+player.w/2),dy=boss.y+boss.h/2-(player.y+player.h/2);
-   if(Math.hypot(dx,dy)<150){ boss.hp--; score+=5; if(boss.hp<=0){boss=null;score+=500;show("💥 ¡JEFE DERROTADO!","¡La salida está abierta!");} }
+   if(boss){
+     const dx=boss.x+boss.w/2-cx,dy=boss.y+boss.h/2-cy;
+     if(Math.hypot(dx,dy)<150){ boss.hp--; score+=5; if(boss.hp<=0){boss=null;score+=500;show("💥 ¡JEFE DERROTADO!","¡La salida está abierta!");} }
+   }
+ }else{
+   // Pistola: dispara proyectiles rápidos hacia adelante.
+   weaponCooldown=0.11;
+   bullets.push({x:player.x+player.w+4,y:cy-3,vx:1050,vy:0,r:5,enemy:false,life:2.2,damage:1});
+   for(let n=0;n<3;n++) particles.push({x:player.x+player.w+5,y:cy-3,vx:120+Math.random()*180,vy:(Math.random()-.5)*90,life:.16});
  }
 }
 weaponBtn.addEventListener("pointerdown",e=>{e.preventDefault();useWeapon()});
@@ -510,7 +525,25 @@ function update(dt,t){
  if(turboActive>0){ turboTrail.push({x:player.x,y:player.y,life:.28}); }
  turboTrail=turboTrail.filter(tr=>tr.life>0);
  bullets=bullets.filter(b=>b.life>0&&b.x>-500&&b.x<goal.x+800&&b.y>-300&&b.y<H+300);
+ // Balas de la pistola del jugador: impactan soldados y jefe.
  for(const b of bullets){
+   if(b.enemy) continue;
+   for(const en of enemies){
+     if(en.hp>0 && b.x>en.x && b.x<en.x+en.w && b.y>en.y && b.y<en.y+en.h){
+       en.hp-=b.damage||1; b.life=0; score+=25;
+       for(let n=0;n<6;n++) particles.push({x:b.x,y:b.y,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.28});
+       break;
+     }
+   }
+   if(b.life<=0) continue;
+   if(boss && b.x>boss.x && b.x<boss.x+boss.w && b.y>boss.y && b.y<boss.y+boss.h){
+     boss.hp-=b.damage||1; b.life=0; score+=5;
+     if(boss.hp<=0){boss=null;score+=500;show("💥 ¡JEFE DERROTADO!","¡La salida está abierta!");}
+   }
+ }
+ enemies=enemies.filter(en=>en.hp>0);
+ for(const b of bullets){
+   if(!b.enemy) continue;
    if(Math.hypot(player.x+player.w/2-b.x,player.y+player.h/2-b.y)<b.r+15){ respawn(); break; }
  }
 
@@ -629,7 +662,8 @@ function draw(t){
    ctx.strokeStyle="#fff";ctx.strokeRect(boss.x,boss.y-22,boss.w,10);
  }
  for(const b of bullets){
-   ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle=b.enemy?"#ffd45a":"#7ee7ff";ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
+   if(!b.enemy){ctx.fillStyle="#ffffffaa";ctx.fillRect(b.x-8,b.y-2,8,4);}
  }
  // obstáculos flotantes cortables del nivel 2
  for(const o of floatingObstacles){
@@ -639,13 +673,22 @@ function draw(t){
    ctx.strokeStyle="#ffd27a";ctx.lineWidth=3;ctx.strokeRect(-o.w/2+3,-o.h/2+3,o.w-6,o.h-6);
    ctx.strokeStyle="#fff5";ctx.beginPath();ctx.moveTo(-12,-12);ctx.lineTo(12,12);ctx.moveTo(12,-12);ctx.lineTo(-12,12);ctx.stroke();ctx.restore();
  }
- // arma / golpe del jugador
- if(level===1 && weaponSwing>0){
+ // arma del jugador: espada en zonas 2-9 y pistolita en zonas 10-15
+ if(weaponMode()==="sword" && weaponSwing>0){
    ctx.save();ctx.translate(player.x+player.w/2,player.y+player.h/2);
    ctx.rotate(-0.9 + (0.24-weaponSwing)/0.24*1.8);
    ctx.strokeStyle="#ffe29a";ctx.lineWidth=6;ctx.lineCap="round";
    ctx.beginPath();ctx.moveTo(8,2);ctx.lineTo(82,-20);ctx.stroke();
    ctx.strokeStyle="#d7e4ff";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(12,1);ctx.lineTo(78,-19);ctx.stroke();
+   ctx.strokeStyle="#ffe29a";ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(8,4);ctx.lineTo(1,10);ctx.stroke();
+   ctx.restore();
+ }
+ if(weaponMode()==="pistol"){
+   ctx.save();
+   ctx.fillStyle="#303949";ctx.fillRect(player.x+player.w-1,player.y+18,22,9);
+   ctx.fillStyle="#111722";ctx.fillRect(player.x+player.w+13,player.y+25,7,12);
+   ctx.fillStyle="#8ea4c7";ctx.fillRect(player.x+player.w+19,player.y+20,9,5);
+   ctx.fillStyle="#7ee7ff";ctx.fillRect(player.x+player.w+28,player.y+21,7,3);
    ctx.restore();
  }
  // coins
@@ -741,10 +784,13 @@ function restartWholeGame(){
 document.getElementById("btnRestartLevel").addEventListener("click",restartCurrentLevel);
 document.getElementById("btnRestartGame").addEventListener("click",restartWholeGame);
 function updateWeaponButton(){
-  weaponBtn.classList.toggle("active",level===1 || level>=5);
+  const mode=weaponMode();
+  weaponBtn.classList.toggle("active",!!mode);
+  weaponBtn.textContent=mode==="sword"?"⚔️":"🔫";
+  weaponBtn.setAttribute("aria-label",mode==="sword"?"Usar espada":"Disparar pistola");
   turboBtn.classList.toggle("active",turboAvailable && turboCooldown<=0 && state==="play");
   turboBtn.disabled=!(turboAvailable && turboCooldown<=0 && state==="play");
-  weaponBtn.disabled=!(level===1 || level>=5) || state!=="play";
+  weaponBtn.disabled=!mode || state!=="play";
   document.getElementById("shopCoins").textContent=score;
 }
 // El botón se actualiza al cambiar de zona.
