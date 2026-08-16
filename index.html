@@ -53,10 +53,10 @@ const levels=[
  {name:"META", obstacles:["gap","moving","spikes","disappear","gap","moving"], width:3900}
 ];
 
-const player={x:100,y:0,w:32,h:42,vx:0,vy:0,onGround:false};
+const player={x:100,y:0,w:30,h:38,vx:0,vy:0,onGround:false};
 let level=0, worldX=0, checkpoint=100, score=0, state="play", jumpLock=false;
 const keys={left:false,right:false,jump:false};
-const gravity=1600, speed=330, jump=-690;
+const gravity=1750, speed=330, jump=-600;
 let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
 let particles=[];
 let obstacleCount=0;
@@ -64,88 +64,91 @@ let obstacleCount=0;
 function makeLevel(){
  const L=levels[level], floorY=H*.72;
  obstacleCount=0;
- platforms=[{x:0,y:floorY,w:480,h:40}];
+ platforms=[{x:0,y:floorY,w:430,h:40}];
  hazards=[];coins=[];
- let x=480;
- let lastY=floorY;
+ let x=430;
+ const difficulty=level+1;
+ const GAP=Math.min(205,175+difficulty*5); // más separación sin superar el alcance real
+ const SUPPORT=Math.max(82,105-difficulty*3);
+ const REST=Math.max(85,125-difficulty*5);
 
- // Diseño de dificultad: los apoyos pueden verse pequeños o lejanos,
- // pero cada transición obligatoria queda dentro de un salto físicamente alcanzable.
- // Con la física actual, la distancia horizontal segura es <= 190 px y la
- // diferencia vertical de los apoyos es <= 55 px.
- const SAFE_GAP=175;
- const SUPPORT_W=105;
-
- function support(px,py,w=SUPPORT_W){
-   platforms.push({x:px,y:py,w:w,h:40});
- }
- function rest(px,py,w=130){
-   platforms.push({x:px,y:py,w:w,h:40});
+ function support(px,py,w=SUPPORT){platforms.push({x:px,y:py,w:w,h:40})}
+ function rest(px,py,w=REST){platforms.push({x:px,y:py,w:w,h:40})}
+ function spikes(px,py,count=1){
+   for(let n=0;n<count;n++) hazards.push({type:'spikes',x:px+n*28,y:py-24,w:26,h:24});
  }
 
- L.obstacles.forEach((type,i)=>{
-   const base=floorY + ((i%2===1)?-45:0);
+ // Cada zona separa más los retos, pero coloca más peligros en la llegada.
+ // La ruta sigue siendo físicamente alcanzable con el salto actual.
+ const patterns = [
+   ['gap'],
+   ['gap','spikes'],
+   ['gap','spikes','spikes'],
+   ['gap','moving','spikes','gap'],
+   ['moving','gap','spikes','spikes','disappear'],
+   ['gap','moving','spikes','gap','spikes','disappear'],
+   ['gap','spikes','moving','spikes','disappear','gap','spikes','moving']
+ ];
+ const pattern=patterns[Math.min(level,patterns.length-1)];
+
+ pattern.forEach((type,i)=>{
+   const base=floorY + ((i%3===1)?-35:0);
    obstacleCount++;
 
    if(type==='gap'){
-     // Dos apoyos relativamente estrechos: parece un salto largo, pero el hueco real es seguro.
-     const gap=155;
-     const landingX=x+gap;
-     support(x,base,95);
-     hazards.push({type:'gap',x:x+95,w:gap-95,y:base+5,h:80});
-     support(landingX,base,115);
-     coins.push({x:landingX+48,y:base-68,r:9});
-     x=landingX+115+35;
-     lastY=base;
+     // Hueco desafiante pero dentro del vuelo máximo (~226 px).
+     support(x,base,SUPPORT+8);
+     const landingX=x+GAP;
+     hazards.push({type:'gap',x:x+SUPPORT+8,w:GAP-(SUPPORT+8),y:base+5,h:90});
+     // Obstáculos progresivos en la llegada: cuanto más avanzada la zona, más pinchos.
+     support(landingX,base,SUPPORT+20);
+     spikes(landingX+SUPPORT-18,base,Math.min(3,1+Math.floor(level/2)));
+     coins.push({x:landingX+40,y:base-62,r:9});
+     x=landingX+SUPPORT+55;
    }
 
    if(type==='spikes'){
-     // La zona de apoyo existe en ambos lados; los pinchos obligan a cronometrar el salto.
-     support(x,base,105);
-     hazards.push({type:'spikes',x:x+42,y:base-24,w:74,h:24});
-     support(x+116,base,105);
-     coins.push({x:x+145,y:base-65,r:9});
-     x=x+221;
-     lastY=base;
+     support(x,base,SUPPORT+20);
+     const count=Math.min(4,1+Math.floor(level/2));
+     spikes(x+35,base,count);
+     // Pequeño apoyo de salida: requiere saltar por encima de la cadena.
+     const next=x+35+count*28+28;
+     support(next,base,SUPPORT+10);
+     x=next+SUPPORT+35;
    }
 
    if(type==='moving'){
-     support(x,base,100);
-     const mx=x+155;
-     // Recorrido corto: aun en su posición más desfavorable, sigue siendo alcanzable.
-     platforms.push({x:mx,y:base-35,w:105,h:40,move:true,startX:mx,range:35,phase:i});
-     support(mx+105+25,base,115);
-     coins.push({x:mx+50,y:base-98,r:9});
-     x=mx+235;
-     lastY=base;
+     support(x,base,SUPPORT+8);
+     const mx=x+GAP-20;
+     platforms.push({x:mx,y:base-35,w:100, h:40, move:true,startX:mx,range:35,phase:i});
+     // Apoyo final más ancho para que el reto sea de precisión, no de suerte.
+     support(mx+125,base,SUPPORT+18);
+     spikes(mx+70,base,level>=4?2:1);
+     coins.push({x:mx+50,y:base-88,r:9});
+     x=mx+SUPPORT+85;
    }
 
    if(type==='disappear'){
-     support(x,base,100);
-     support(x+145,base-35,100);
-     support(x+290,base,115);
-     coins.push({x:x+50,y:base-65,r:9});
-     x=x+440;
-     lastY=base;
+     support(x,base,SUPPORT+5);
+     support(x+150,base-35,SUPPORT+5);
+     spikes(x+150+SUPPORT-15,base-35,Math.min(2,1+Math.floor(level/3)));
+     support(x+300,base,SUPPORT+15);
+     x=x+300+SUPPORT+65;
    }
 
-   // Descanso pequeño: no hace el nivel fácil, solo evita checkpoints injustos.
-   rest(x,lastY,125);
-   x+=125;
+   // Separación visual entre retos. No es una zona regalada: es el espacio necesario
+   // para preparar el siguiente salto y evitar que dos obstáculos se mezclen accidentalmente.
+   rest(x,base,REST);
+   x += 55 + difficulty*12;
  });
 
- goal.x=x+70;
+ goal.x=x+90;
  goal.y=floorY-90;
- rest(x,floorY,180);
- platforms.push({x:goal.x-70,y:floorY,w:140,h:40});
- player.x=100;
- player.y=floorY-player.h;
- player.vx=0;
- player.vy=0;
- checkpoint=100;
- worldX=0;
+ platforms.push({x:x,y:floorY,w:260,h:40});
+ player.x=100; player.y=floorY-player.h; player.vx=0; player.vy=0;
+ checkpoint=100; worldX=0;
  document.getElementById('zone').textContent=level+1;
- show('Zona '+(level+1),'Difícil, pero físicamente posible 😈');
+ show('Zona '+(level+1),'Cada llegada tiene más obstáculos 😈');
  save();
 }
 function save(){localStorage.setItem("obstaculosSave",JSON.stringify({level,score}));}
