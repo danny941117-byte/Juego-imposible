@@ -23,8 +23,8 @@ button:active{background:#ffffff38;transform:scale(.96)}
 #jump{background:#276cff55}
 #weapon{display:none;background:#e09b3d66;border-color:#ffd77a88;font-size:28px}
 #weapon.active{display:block}
-#turbo{display:none;background:#31c8ff66;border-color:#8be8ff99;font-size:25px}
-#turbo.active{display:block}
+#turbo{display:block;background:#31c8ff22;border-color:#8be8ff55;font-size:25px;opacity:.35}
+#turbo.active{display:block;opacity:1}
 #shopBtn{position:fixed;left:12px;top:72px;z-index:10000;width:auto;height:auto;padding:10px 14px;border-radius:12px;background:#5d3f1fdd;border-color:#ffd45a66;font-size:14px;box-shadow:0 5px 16px #0007;pointer-events:auto}
 #shop{position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;background:#050914cc;pointer-events:auto}
 #shop.open{display:flex}
@@ -67,12 +67,20 @@ addEventListener('resize',resize); resize();
 
 const levels=[
  {name:"El comienzo", obstacles:["gap"], width:2050},
- {name:"Primer reto", obstacles:["spikes","moving"], width:2350},
- {name:"No te apresures", obstacles:["gap","disappear"], width:3000},
- {name:"Zona peligrosa", obstacles:["spikes","moving","gap"], width:3000},
- {name:"La combinación", obstacles:["moving","spikes","disappear","gap"], width:3400},
- {name:"Último tramo", obstacles:["gap","moving","spikes","spikes","disappear"], width:3800},
- {name:"META", obstacles:["gap","moving","spikes","disappear","gap","moving"], width:4200}
+ {name:"Arma y laberinto", obstacles:["spikes","moving","floating"], width:3200},
+ {name:"Pasos quebrados", obstacles:["gap","disappear","moving"], width:3500},
+ {name:"Tormenta", obstacles:["spikes","moving","gap","disappear"], width:3800},
+ {name:"Ruta imposible", obstacles:["moving","spikes","disappear","gap"], width:4100},
+ {name:"Cuchillas", obstacles:["gap","moving","spikes","saw"], width:4300},
+ {name:"Abismo", obstacles:["gap","moving","spikes","disappear","gap"], width:4500},
+ {name:"Caos", obstacles:["spikes","gap","moving","saw","disappear"], width:4700},
+ {name:"Último aviso", obstacles:["gap","spikes","moving","saw","gap"], width:4900},
+ {name:"Zona militar", obstacles:["spikes","moving","gap","saw","disappear"], width:5200},
+ {name:"Corredor mortal", obstacles:["gap","moving","spikes","saw","disappear","gap"], width:5400},
+ {name:"Sin descanso", obstacles:["spikes","gap","moving","saw","gap","disappear"], width:5600},
+ {name:"Casi imposible", obstacles:["gap","spikes","moving","saw","disappear","gap","spikes"], width:5900},
+ {name:"Puerta del jefe", obstacles:["moving","gap","spikes","saw","disappear","gap"], width:6200},
+ {name:"JEFE FINAL", obstacles:["boss","gap","spikes","moving","saw"], width:6800}
 ];
 
 const player={x:100,y:0,w:30,h:38,vx:0,vy:0,onGround:false};
@@ -89,6 +97,9 @@ const keys={left:false,right:false,jump:false};
 const gravity=1750, speed=330, jump=-600;
 let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
 let floatingObstacles=[];
+let enemies=[];
+let bullets=[];
+let boss=null;
 let weaponSwing=0, weaponCooldown=0;
 let particles=[];
 let obstacleCount=0;
@@ -99,7 +110,7 @@ function makeLevel(){
  const L=levels[level], floorY=H*.72;
  obstacleCount=0;
  platforms=[{x:0,y:floorY,w:430,h:40}];
- hazards=[];coins=[];floatingObstacles=[];activeEvents=[];weaponSwing=0;weaponCooldown=0;turboAvailable=false;turboCooldown=0;
+ hazards=[];coins=[];floatingObstacles=[];enemies=[];bullets=[];boss=null;activeEvents=[];weaponSwing=0;weaponCooldown=0;turboAvailable=false;turboCooldown=0;
  let x=430;
  const difficulty=level+1;
  const GAP=Math.min(215,172+difficulty*6); // más separación sin superar el alcance real
@@ -221,12 +232,29 @@ function makeLevel(){
    platforms.push({x:x-60,y:floorY,w:310,h:40});
  }
 
+ // Nivel 10: soldados que disparan balas deliberadamente lentas.
+ if(level===9){
+   const baseX=x+220;
+   for(let i=0;i<5;i++){
+     enemies.push({x:baseX+i*650,y:floorY-74,w:42,h:58,hp:1,shoot:0.7+i*0.45,phase:i});
+     platforms.push({x:baseX+i*650-70,y:floorY,w:190,h:40});
+   }
+   x+=5*650+240;
+ }
+
+ // Nivel 15: jefe final superpoderoso con muchas balas lentas.
+ if(level===14){
+   boss={x:x+520,y:floorY-190,w:125,h:155,hp:30,maxHp:30,shoot:0.25,phase:0};
+   platforms.push({x:x+150,y:floorY,w:1350,h:40});
+   x+=1650;
+ }
+
  goal.x=x+90;
  goal.y=floorY-90;
  platforms.push({x:x,y:floorY,w:260,h:40});
  player.x=100; player.y=floorY-player.h; player.vx=0; player.vy=0;
  checkpoint={x:100,y:floorY-player.h}; worldX=0;
- document.getElementById('zone').textContent=level+1; if(document.getElementById('difficulty')) document.getElementById('difficulty').textContent=Math.min(10, level+2);
+ document.getElementById('zone').textContent=level+1; if(document.getElementById('difficulty')) document.getElementById('difficulty').textContent=Math.min(15, level+1);
  show('Zona '+(level+1),'Cada llegada tiene más obstáculos 😈');
  save();
 }
@@ -259,14 +287,14 @@ const turboBtn=document.getElementById("turbo");
 function useTurbo(){
  if(!turboAvailable || turboCooldown>0 || state!=="play") return;
  turboAvailable=false; turboCooldown=1.05;
- player.vx=Math.max(player.vx,520);
- player.x+=105;
+ player.vx=Math.max(player.vx,720);
+ player.x+=150;
  for(let n=0;n<12;n++) particles.push({x:player.x,y:player.y+player.h/2,vx:-80-Math.random()*150,vy:(Math.random()-.5)*90,life:.35});
  show("⚡ TURBO!","¡Impulso hacia adelante!");
 }
 turboBtn.addEventListener("pointerdown",e=>{e.preventDefault();useTurbo()});
 function useWeapon(){
- if(level!==1 || weaponCooldown>0 || state!=="play") return;
+ if((level!==1 && level<5) || weaponCooldown>0 || state!=="play") return;
  weaponSwing=0.24; weaponCooldown=0.38;
  const cx=player.x+player.w/2, cy=player.y+player.h/2;
  for(const o of floatingObstacles){
@@ -277,9 +305,13 @@ function useWeapon(){
      for(let n=0;n<10;n++) particles.push({x:o.x+o.w/2,y:o.y+o.h/2,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.45});
    }
  }
+ if(boss){
+   const dx=boss.x+boss.w/2-(player.x+player.w/2),dy=boss.y+boss.h/2-(player.y+player.h/2);
+   if(Math.hypot(dx,dy)<150){ boss.hp--; score+=5; if(boss.hp<=0){boss=null;score+=500;show("💥 ¡JEFE DERROTADO!","¡La salida está abierta!");} }
+ }
 }
 weaponBtn.addEventListener("pointerdown",e=>{e.preventDefault();useWeapon()});
-addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;if(e.key==="ArrowRight"||e.key==="d")keys.right=true;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=true;if((e.key==="e"||e.key==="x"||e.key==="f"))useWeapon();if(state==="win"&&e.key==="r")restart()});
+addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;if(e.key==="ArrowRight"||e.key==="d")keys.right=true;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=true;if((e.key==="e"||e.key==="x"||e.key==="f"))useWeapon();if(e.key==="q"||e.key==="Shift")useTurbo();if(state==="win"&&e.key==="r")restart()});
 addEventListener("keyup",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=false;if(e.key==="ArrowRight"||e.key==="d")keys.right=false;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=false});
 addEventListener("pointerdown",e=>{if(state==="win"){restart()}});
 
@@ -439,6 +471,36 @@ function update(dt,t){
      if(!p.eventKind && !p.move && p.x >= checkpoint.x + 220){checkpoint={x:p.x+18,y:p.y}; score+=5}
    }
  }
+ // Enemigos del nivel 10: disparan proyectiles lentos hacia el jugador.
+ for(const en of enemies){
+   en.shoot-=dt;
+   if(en.shoot<=0){
+     const dx=(player.x+player.w/2)-(en.x+en.w/2);
+     const dy=(player.y+player.h/2)-(en.y+en.h/2);
+     const mag=Math.hypot(dx,dy)||1;
+     bullets.push({x:en.x+en.w/2,y:en.y+en.h/2,vx:dx/mag*135,vy:dy/mag*135,r:8,enemy:true,life:8});
+     en.shoot=1.8+(en.phase%2)*0.6;
+   }
+ }
+ // Jefe final: ráfagas frecuentes de muchas balas lentas.
+ if(boss){
+   boss.shoot-=dt; boss.phase+=dt;
+   if(boss.shoot<=0){
+     const cx=boss.x+boss.w/2, cy=boss.y+boss.h/2;
+     const base=Math.atan2(player.y+player.h/2-cy,player.x+player.w/2-cx);
+     for(let i=-4;i<=4;i++){
+       const a=base+i*0.12;
+       bullets.push({x:cx,y:cy,vx:Math.cos(a)*155,vy:Math.sin(a)*155,r:9,enemy:true,life:9});
+     }
+     boss.shoot=1.05;
+   }
+ }
+ for(const b of bullets){ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; }
+ bullets=bullets.filter(b=>b.life>0&&b.x>-500&&b.x<goal.x+800&&b.y>-300&&b.y<H+300);
+ for(const b of bullets){
+   if(Math.hypot(player.x+player.w/2-b.x,player.y+player.h/2-b.y)<b.r+15){ respawn(); break; }
+ }
+
  // Obstáculos flotantes del nivel 2: se mueven como puertas del laberinto y se cortan con el arma.
  for(const o of floatingObstacles){
    if(!o.alive) continue;
@@ -463,7 +525,7 @@ function update(dt,t){
    return;
  }
  for(const coin of coins){if(!coin.got&&Math.hypot(player.x+16-coin.x,player.y+20-coin.y)<28){coin.got=true;score+=10}}
- if(player.x>goal.x){
+ if(player.x>goal.x && !boss){
    if(level<levels.length-1){level++;score+=100;show("¡Zona superada!","La siguiente cadena de obstáculos será más difícil 😈");makeLevel()}
    else{state="win";show("🏆 ¡META!","Has superado todas las zonas");save()}
  }
@@ -538,6 +600,23 @@ function draw(t){
      }
      ctx.closePath();ctx.fill();ctx.fillStyle="#555d70";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();
    }
+ }
+ // Soldados y jefe
+ for(const en of enemies){
+   ctx.fillStyle="#6b2330";ctx.fillRect(en.x,en.y,en.w,en.h);
+   ctx.fillStyle="#d9b38c";ctx.beginPath();ctx.arc(en.x+en.w/2,en.y+12,11,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle="#252b38";ctx.fillRect(en.x+7,en.y+25,en.w-14,22);
+   ctx.fillStyle="#ff5c66";ctx.fillRect(en.x+en.w-4,en.y+29,18,6);
+ }
+ if(boss){
+   ctx.fillStyle="#351c4f";ctx.fillRect(boss.x,boss.y,boss.w,boss.h);
+   ctx.fillStyle="#b987d6";ctx.beginPath();ctx.arc(boss.x+boss.w/2,boss.y+38,28,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle="#ff465f";ctx.fillRect(boss.x+30,boss.y+31,15,7);ctx.fillRect(boss.x+80,boss.y+31,15,7);
+   ctx.fillStyle="#ff4e68";ctx.fillRect(boss.x,boss.y-22,boss.w*(boss.hp/boss.maxHp),10);
+   ctx.strokeStyle="#fff";ctx.strokeRect(boss.x,boss.y-22,boss.w,10);
+ }
+ for(const b of bullets){
+   ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
  }
  // obstáculos flotantes cortables del nivel 2
  for(const o of floatingObstacles){
@@ -641,8 +720,10 @@ function restartWholeGame(){
 document.getElementById("btnRestartLevel").addEventListener("click",restartCurrentLevel);
 document.getElementById("btnRestartGame").addEventListener("click",restartWholeGame);
 function updateWeaponButton(){
-  weaponBtn.classList.toggle("active",level===1);
+  weaponBtn.classList.toggle("active",level===1 || level>=5);
   turboBtn.classList.toggle("active",turboAvailable && turboCooldown<=0 && state==="play");
+  turboBtn.disabled=!(turboAvailable && turboCooldown<=0 && state==="play");
+  weaponBtn.disabled=!(level===1 || level>=5) || state!=="play";
   document.getElementById("shopCoins").textContent=score;
 }
 // El botón se actualiza al cambiar de zona.
