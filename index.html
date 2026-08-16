@@ -60,6 +60,8 @@ const gravity=1750, speed=330, jump=-600;
 let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
 let particles=[];
 let obstacleCount=0;
+let activeEvents=[];
+let eventCooldown=0;
 
 function makeLevel(){
  const L=levels[level], floorY=H*.72;
@@ -72,7 +74,7 @@ function makeLevel(){
  const SUPPORT=Math.max(82,105-difficulty*3);
  const REST=Math.max(85,125-difficulty*5);
 
- function support(px,py,w=SUPPORT){platforms.push({x:px,y:py,w:w,h:40})}
+ function support(px,py,w=SUPPORT,eventKind=null){platforms.push({x:px,y:py,w:w,h:40,eventKind:eventKind,triggered:false})}
  function rest(px,py,w=REST){platforms.push({x:px,y:py,w:w,h:40})}
  function spikes(px,py,count=1){
    for(let n=0;n<count;n++) hazards.push({type:'spikes',x:px+n*28,y:py-24,w:26,h:24});
@@ -90,6 +92,15 @@ function makeLevel(){
    ['gap','spikes','moving','spikes','disappear','gap','spikes','moving']
  ];
  const pattern=patterns[Math.min(level,patterns.length-1)];
+ // Cada zona tiene un "evento imposible" diferente. Siempre aparece con aviso
+ // y deja una ventana de reacción, para que sea sorprendente pero físicamente evitable.
+ const zoneEvent = ['shift','falling','popspikes','blast','wheel','saw','chaos'][Math.min(level,6)];
+ let eventPlaced=false;
+ const eventFor = () => {
+   if(eventPlaced) return null;
+   eventPlaced=true;
+   return zoneEvent;
+ };
 
  pattern.forEach((type,i)=>{
    const base=floorY + ((i%3===1)?-35:0);
@@ -101,7 +112,7 @@ function makeLevel(){
      const landingX=x+GAP;
      hazards.push({type:'gap',x:x+SUPPORT+8,w:GAP-(SUPPORT+8),y:base+5,h:90});
      // Obstáculos progresivos en la llegada: cuanto más avanzada la zona, más pinchos.
-     support(landingX,base,SUPPORT+20);
+     support(landingX,base,SUPPORT+20,eventFor());
      spikes(landingX+SUPPORT-18,base,Math.min(3,1+Math.floor(level/2)));
      coins.push({x:landingX+40,y:base-62,r:9});
      x=landingX+SUPPORT+55;
@@ -113,7 +124,7 @@ function makeLevel(){
      spikes(x+35,base,count);
      // Pequeño apoyo de salida: requiere saltar por encima de la cadena.
      const next=x+35+count*28+28;
-     support(next,base,SUPPORT+10);
+     support(next,base,SUPPORT+10,eventFor());
      x=next+SUPPORT+35;
    }
 
@@ -122,7 +133,7 @@ function makeLevel(){
      const mx=x+GAP-20;
      platforms.push({x:mx,y:base-35,w:100, h:40, move:true,startX:mx,range:35,phase:i});
      // Apoyo final más ancho para que el reto sea de precisión, no de suerte.
-     support(mx+125,base,SUPPORT+18);
+     support(mx+125,base,SUPPORT+18,eventFor());
      spikes(mx+70,base,level>=4?2:1);
      coins.push({x:mx+50,y:base-88,r:9});
      x=mx+SUPPORT+85;
@@ -132,13 +143,14 @@ function makeLevel(){
      support(x,base,SUPPORT+5);
      support(x+150,base-35,SUPPORT+5);
      spikes(x+150+SUPPORT-15,base-35,Math.min(2,1+Math.floor(level/3)));
-     support(x+300,base,SUPPORT+15);
+     support(x+300,base,SUPPORT+15,eventFor());
      x=x+300+SUPPORT+65;
    }
 
    // Separación visual entre retos. No es una zona regalada: es el espacio necesario
    // para preparar el siguiente salto y evitar que dos obstáculos se mezclen accidentalmente.
-   rest(x,base,REST);
+   if(!eventPlaced) support(x,base,REST,eventFor());
+   else rest(x,base,REST);
    x += 55 + difficulty*12;
  });
 
@@ -175,13 +187,114 @@ addEventListener("keyup",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=false
 addEventListener("pointerdown",e=>{if(state==="win"){restart()}});
 
 let last=performance.now();
+
+function triggerEvent(p){
+ if(!p.eventKind || p.triggered) return;
+ p.triggered=true;
+ eventCooldown=0.45;
+ const x=p.x+p.w*0.55, y=p.y;
+ const k=p.eventKind;
+
+ if(k==='shift'){
+   p.shiftStart=p.x; p.shiftTarget=p.x+90+level*8; p.shiftTime=0;
+   p.shiftSpeed=135+level*8; p.shiftActive=true;
+   show("⚠️ ¡El suelo se mueve!","La plataforma acaba de cambiar de lugar");
+ }
+ if(k==='falling'){
+   activeEvents.push({kind:'rock',x:x+95,y:-80,vx:0,vy:60+level*8,r:18,armed:true});
+   show("☄️ ¡Mira arriba!","Algo acaba de caer del cielo");
+ }
+ if(k==='popspikes'){
+   activeEvents.push({kind:'popspikes',x:x+35,y:y,w:70,h:26,delay:0.48,active:false});
+   show("⚠️ ¡TRAMPA!","Los pinchos van a aparecer");
+ }
+ if(k==='blast'){
+   activeEvents.push({kind:'blast',x:x+85,y:y-22,r:0,maxR:58+level*4,delay:0.55,life:0.42,armed:false});
+   show("💥 ¡EXPLOSIÓN!","Aléjate del punto marcado");
+ }
+ if(k==='wheel'){
+   activeEvents.push({kind:'wheel',x:x+125,y:y-180,vx:-110-level*8,vy:0,r:24,spin:0,armed:true});
+   show("🛞 ¡RUEDA!","Algo viene rodando desde arriba");
+ }
+ if(k==='saw'){
+   activeEvents.push({kind:'saw',x:x+150,y:y-120,vx:-80-level*8,vy:0,r:22,spin:0,armed:true});
+   show("⚙️ ¡SIERRA!","Encuentra el hueco y pasa");
+ }
+ if(k==='chaos'){
+   activeEvents.push({kind:'rock',x:x+110,y:-70,vx:-45,vy:70,r:16,armed:true});
+   activeEvents.push({kind:'saw',x:x+180,y:y-125,vx:-100,vy:0,r:21,spin:0,armed:true});
+   activeEvents.push({kind:'popspikes',x:x+30,y:y,w:74,h:26,delay:0.65,active:false});
+   show("☠️ ¡CAOS!","Todo cambió. Mantén la calma");
+ }
+}
+
+function eventHit(e){
+ const px=player.x+player.w/2, py=player.y+player.h/2;
+ if(e.kind==='popspikes' && e.active){
+   return player.x+player.w>e.x && player.x<e.x+e.w &&
+          player.y+player.h>e.y-e.h && player.y<e.y;
+ }
+ if(e.kind==='blast' && e.armed){
+   return Math.hypot(px-e.x,py-e.y)<e.r+14;
+ }
+ if(e.kind==='rock' || e.kind==='wheel' || e.kind==='saw'){
+   return Math.hypot(px-e.x,py-e.y)<e.r+17;
+ }
+ return false;
+}
+
+function updateEvents(dt){
+ eventCooldown=Math.max(0,eventCooldown-dt);
+
+ for(const e of activeEvents){
+   if(e.kind==='popspikes'){
+     e.delay-=dt;
+     if(e.delay<=0) e.active=true;
+   }
+   if(e.kind==='blast'){
+     e.delay-=dt;
+     if(e.delay<=0){
+       e.armed=true;
+       e.r=Math.min(e.maxR,e.r+260*dt);
+       e.life-=dt;
+     }
+   }
+   if(e.kind==='rock'){
+     e.vy+=1200*dt; e.x+=e.vx*dt; e.y+=e.vy*dt;
+   }
+   if(e.kind==='wheel'){
+     e.vy+=900*dt; e.x+=e.vx*dt; e.y+=e.vy*dt; e.spin+=dt*7;
+   }
+   if(e.kind==='saw'){
+     e.x+=e.vx*dt; e.spin+=dt*10;
+   }
+ }
+ activeEvents=activeEvents.filter(e=>{
+   if(e.kind==='popspikes') return e.delay<1.5;
+   if(e.kind==='blast') return e.delay>0 || e.life>0;
+   return e.y<H+250 && e.x>-500 && e.x<goal.x+800;
+ });
+}
+
 function update(dt,t){
  if(state!=="play")return;
  const floorY=H*.72;
+ updateEvents(dt);
  platforms.forEach(p=>{
+   p.prevX=p.x;
    if(p.move){p.x=p.startX+Math.sin(t/850+p.phase)*p.range}
    if(p.vanish){p.t=Math.max(0,p.t-dt); if(p.t===0 && Math.random()<dt*.25)p.t=1.5}
+   if(p.shiftActive){
+     const dir=Math.sign(p.shiftTarget-p.x);
+     p.x += dir*p.shiftSpeed*dt;
+     if((dir>0&&p.x>=p.shiftTarget)||(dir<0&&p.x<=p.shiftTarget)){p.x=p.shiftTarget;p.shiftActive=false;}
+   }
  });
+ for(const p of platforms){
+   if(p.shiftActive && player.onGround && player.x+player.w>p.x && player.x<p.x+p.w){
+     player.x += (p.x-(p.prevX||p.x));
+   }
+ }
  let dir=(keys.right?1:0)-(keys.left?1:0);
  player.vx += (dir*speed-player.vx)*Math.min(1,dt*8);
  if(Math.abs(player.vx)<2)player.vx=0;
@@ -196,11 +309,15 @@ function update(dt,t){
    if(p.vanish && p.t<=0)continue;
    if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){
      player.y=p.y-player.h;player.vy=0;player.onGround=true;
-     if(player.x>checkpoint+260){checkpoint=player.x; score+=5}
+     if(p.eventKind && !p.triggered && eventCooldown<=0) triggerEvent(p);
+     if(player.x>checkpoint+260 && !p.eventKind){checkpoint=player.x; score+=5}
    }
  }
  for(const h of hazards){
    if(h.type==="spikes"&&player.x+player.w>h.x&&player.x<h.x+h.w&&player.y+player.h>h.y&&player.y<h.y+h.h)respawn();
+ }
+ for(const e of activeEvents){
+   if(eventHit(e)){ respawn(); break; }
  }
  if(player.y>H+150)respawn();
  for(const coin of coins){if(!coin.got&&Math.hypot(player.x+16-coin.x,player.y+20-coin.y)<28){coin.got=true;score+=10}}
@@ -233,6 +350,41 @@ function draw(t){
  for(const h of hazards)if(h.type==="spikes"){
    ctx.fillStyle="#ff4e68";
    for(let x=h.x;x<h.x+h.w;x+=18){ctx.beginPath();ctx.moveTo(x,h.y+h.h);ctx.lineTo(x+9,h.y);ctx.lineTo(x+18,h.y+h.h);ctx.fill()}
+ }
+ // surprise events
+ for(const e of activeEvents){
+   if(e.kind==='popspikes'){
+     ctx.fillStyle=e.active?"#ff4e68":"#ffb347";
+     const yy=e.y-(e.active?e.h:3);
+     for(let x=e.x;x<e.x+e.w;x+=18){
+       ctx.beginPath();ctx.moveTo(x,yy+e.h);ctx.lineTo(x+9,yy);ctx.lineTo(x+18,yy+e.h);ctx.fill();
+     }
+   }
+   if(e.kind==='blast'){
+     if(e.delay>0){
+       ctx.strokeStyle="#ffd45a";ctx.lineWidth=3;ctx.beginPath();ctx.arc(e.x,e.y,18,0,Math.PI*2);ctx.stroke();
+     }else{
+       ctx.strokeStyle="#ff704d";ctx.lineWidth=5;ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.stroke();
+     }
+   }
+   if(e.kind==='rock'){
+     ctx.fillStyle="#7c6757";ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fill();
+     ctx.fillStyle="#b69b82";ctx.beginPath();ctx.arc(e.x-6,e.y-6,5,0,Math.PI*2);ctx.fill();
+   }
+   if(e.kind==='wheel'){
+     ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.spin);ctx.strokeStyle="#aeb7c9";ctx.lineWidth=7;
+     ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.stroke();
+     ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-e.r,0);ctx.lineTo(e.r,0);ctx.moveTo(0,-e.r);ctx.lineTo(0,e.r);ctx.stroke();ctx.restore();
+   }
+   if(e.kind==='saw'){
+     ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.spin);ctx.fillStyle="#d7dbe5";
+     ctx.beginPath();
+     for(let a=0;a<Math.PI*2;a+=Math.PI/8){
+       const rr=(Math.floor(a/(Math.PI/4))%2===0)?e.r:e.r-7;
+       ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+     }
+     ctx.closePath();ctx.fill();ctx.fillStyle="#555d70";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();
+   }
  }
  // coins
  for(const q of coins)if(!q.got){ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fff4";ctx.beginPath();ctx.arc(q.x-3,q.y-3,3,0,Math.PI*2);ctx.fill()}
@@ -272,7 +424,7 @@ function draw(t){
  if(state==="win"){
    ctx.fillStyle="#000b";ctx.fillRect(0,0,W,H);
    ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="800 30px system-ui";
-   ctx.fillText("🏆 META Completada culero hpt",W/2,H*.42);
+   ctx.fillText("🏆 META Completada CULERO",W/2,H*.42);
    ctx.font="600 17px system-ui";ctx.fillText("Toca la pantalla para volver a jugar",W/2,H*.50);
  }
  document.getElementById("score").textContent=score;
