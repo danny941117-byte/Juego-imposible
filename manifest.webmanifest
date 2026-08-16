@@ -1,0 +1,9 @@
+{
+  "name":"Obstáculos — Juego Android",
+  "short_name":"Obstáculos",
+  "start_url":"./index.html",
+  "display":"standalone",
+  "background_color":"#101522",
+  "theme_color":"#101522",
+  "icons":[]
+}
