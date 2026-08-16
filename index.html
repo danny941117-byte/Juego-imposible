@@ -21,6 +21,18 @@ canvas{display:block;width:100%;height:100%;background:#101522}
 button{width:76px;height:76px;border:0;border-radius:50%;background:#ffffff18;border:2px solid #ffffff35;color:white;font-size:30px;font-weight:900;box-shadow:0 5px 18px #0007}
 button:active{background:#ffffff38;transform:scale(.96)}
 #jump{background:#276cff55}
+#weapon{display:none;background:#e09b3d66;border-color:#ffd77a88;font-size:28px}
+#weapon.active{display:block}
+#turbo{display:none;background:#31c8ff66;border-color:#8be8ff99;font-size:25px}
+#turbo.active{display:block}
+#shopBtn{position:fixed;left:12px;top:72px;z-index:10000;width:auto;height:auto;padding:10px 14px;border-radius:12px;background:#5d3f1fdd;border-color:#ffd45a66;font-size:14px;box-shadow:0 5px 16px #0007;pointer-events:auto}
+#shop{position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;background:#050914cc;pointer-events:auto}
+#shop.open{display:flex}
+.shopCard{width:min(92vw,520px);max-height:82vh;overflow:auto;background:#111a2b;border:1px solid #ffffff22;border-radius:20px;padding:18px;box-shadow:0 20px 60px #000b}
+.shopHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.shopHead h2{margin:0}.shopClose{width:42px;height:42px;font-size:20px}.skinGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.skin{background:#ffffff0d;border:1px solid #ffffff1c;border-radius:16px;padding:12px}.skinPreview{height:100px;border-radius:12px;background:linear-gradient(135deg,#1c2944,#0d1322);display:flex;align-items:center;justify-content:center;margin-bottom:8px}.miniAvatar{position:relative;width:40px;height:70px}.miniAvatar .head{position:absolute;left:10px;top:0;width:20px;height:20px;border-radius:50%;background:#f2c7a5}.miniAvatar .body{position:absolute;left:7px;top:19px;width:26px;height:30px;border-radius:7px;background:var(--skin)}.miniAvatar .legs{position:absolute;left:9px;top:47px;width:22px;height:20px;background:linear-gradient(90deg,#202941 45%,transparent 45%,transparent 55%,#202941 55%)}.skin b{display:block}.skin small{display:block;opacity:.75;margin:3px 0 9px}.skin button{width:100%;height:42px;border-radius:10px;font-size:14px;background:#ffffff14}.skin button:disabled{opacity:.45}.shopNote{font-size:12px;opacity:.7;margin-top:12px}
+#restartControls{position:fixed;right:12px;top:72px;z-index:9999;display:flex;flex-direction:column;gap:8px;font-family:system-ui,sans-serif;pointer-events:auto}
+#restartControls button{width:auto;height:auto;padding:10px 12px;border-radius:10px;background:#17202b;color:#fff;font-weight:700;font-size:13px;box-shadow:none}
+#restartControls #btnRestartGame{background:#3a1720;border-color:#ff666655}
 @media(min-width:800px){#controls{max-width:650px;margin:auto}}
 </style>
 </head>
@@ -33,9 +45,18 @@ button:active{background:#ffffff38;transform:scale(.96)}
     <div class="badge">❤️ ∞</div>
   </div>
   <div id="msg"><b id="msgTitle"></b><div id="msgText"></div></div>
+  <button id="shopBtn" type="button">👕 Tienda</button>
   <div id="controls">
     <div class="pad"><button id="left">◀</button><button id="right">▶</button></div>
-    <button id="jump">⬆</button>
+    <div class="pad"><button id="turbo" aria-label="Turbo hacia adelante">⚡</button><button id="weapon" aria-label="Accionar arma">⚔️</button><button id="jump">⬆</button></div>
+  </div>
+  <div id="shop" aria-hidden="true">
+    <div class="shopCard">
+      <div class="shopHead"><h2>👕 Tienda de ropa</h2><button class="shopClose" id="shopClose">×</button></div>
+      <div style="margin-bottom:12px">🪙 Monedas: <b id="shopCoins">0</b></div>
+      <div class="skinGrid" id="skinGrid"></div>
+      <div class="shopNote">Los precios son altos a propósito: juega, reúne monedas y desbloquea nuevos estilos. Las compras quedan guardadas.</div>
+    </div>
   </div>
 </div>
 <script>
@@ -56,9 +77,19 @@ const levels=[
 
 const player={x:100,y:0,w:30,h:38,vx:0,vy:0,onGround:false};
 let level=0, worldX=0, checkpoint={x:100,y:0}, score=0, state="play", jumpLock=false, justRespawned=false, jumpCount=0;
+let turboAvailable=false, turboCooldown=0, equippedSkin="classic", ownedSkins=["classic"];
+const skins=[
+ {id:"classic",name:"Explorador",cost:0,color:"#4266d6",accent:"#90a8ff"},
+ {id:"neon",name:"Neón",cost:300,color:"#9b3cff",accent:"#35f0ff"},
+ {id:"royal",name:"Comandante",cost:650,color:"#c68b24",accent:"#ffe18a"},
+ {id:"shadow",name:"Sombra",cost:1100,color:"#20252f",accent:"#ff4e68"},
+ {id:"cyber",name:"Cyber Elite",cost:1700,color:"#00a889",accent:"#a7fff0"}
+];
 const keys={left:false,right:false,jump:false};
 const gravity=1750, speed=330, jump=-600;
 let platforms=[], hazards=[], coins=[], goal={x:0,y:0};
+let floatingObstacles=[];
+let weaponSwing=0, weaponCooldown=0;
 let particles=[];
 let obstacleCount=0;
 let activeEvents=[];
@@ -68,7 +99,7 @@ function makeLevel(){
  const L=levels[level], floorY=H*.72;
  obstacleCount=0;
  platforms=[{x:0,y:floorY,w:430,h:40}];
- hazards=[];coins=[];
+ hazards=[];coins=[];floatingObstacles=[];activeEvents=[];weaponSwing=0;weaponCooldown=0;turboAvailable=false;turboCooldown=0;
  let x=430;
  const difficulty=level+1;
  const GAP=Math.min(215,172+difficulty*6); // más separación sin superar el alcance real
@@ -165,6 +196,31 @@ function makeLevel(){
    x += 55 + difficulty*12;
  });
 
+ // Nivel 2: sección especial con pasos tipo laberinto y obstáculos flotantes
+ if(level===1){
+   const mazeY=floorY-105;
+   const mazeStart=x+40;
+   const mazePattern=[
+     {x:mazeStart,y:mazeY,w:125,h:32},
+     {x:mazeStart+170,y:mazeY-70,w:105,h:32},
+     {x:mazeStart+315,y:mazeY-18,w:120,h:32},
+     {x:mazeStart+470,y:mazeY-88,w:100,h:32},
+     {x:mazeStart+610,y:mazeY-35,w:135,h:32},
+     {x:mazeStart+785,y:mazeY-100,w:105,h:32}
+   ];
+   mazePattern.forEach((m,i)=>{
+     platforms.push({x:m.x,y:m.y,w:m.w,h:m.h,maze:true});
+     if(i<mazePattern.length-1) coins.push({x:m.x+m.w*.5,y:m.y-38,r:8});
+   });
+   // Obstáculos flotantes cortables: no dañan si están lejos, pero bloquean el paso.
+   const floatY=[floorY-190,floorY-285,floorY-155,floorY-250,floorY-180];
+   for(let i=0;i<5;i++){
+     floatingObstacles.push({x:mazeStart+95+i*165,y:floatY[i],w:42,h:42,alive:true,phase:i*.8,rot:0});
+   }
+   x=mazeStart+980;
+   platforms.push({x:x-60,y:floorY,w:310,h:40});
+ }
+
  goal.x=x+90;
  goal.y=floorY-90;
  platforms.push({x:x,y:floorY,w:260,h:40});
@@ -174,8 +230,8 @@ function makeLevel(){
  show('Zona '+(level+1),'Cada llegada tiene más obstáculos 😈');
  save();
 }
-function save(){localStorage.setItem("obstaculosSave",JSON.stringify({level,score}));}
-function load(){try{let s=JSON.parse(localStorage.getItem("obstaculosSave"));if(s){level=Math.min(s.level||0,levels.length-1);score=s.score||0}}catch(e){}}
+function save(){localStorage.setItem("obstaculosSave",JSON.stringify({level,score,equippedSkin,ownedSkins}));}
+function load(){try{let s=JSON.parse(localStorage.getItem("obstaculosSave"));if(s){level=Math.min(s.level||0,levels.length-1);score=s.score||0;equippedSkin=s.equippedSkin||"classic";ownedSkins=Array.isArray(s.ownedSkins)&&s.ownedSkins.length?s.ownedSkins:["classic"]}}catch(e){}}
 load();makeLevel();
 
 function respawn(){
@@ -188,7 +244,7 @@ function respawn(){
  show("💥 ¡Cuidado!","Sin límite de vidas — vuelve a intentarlo");
 }
 function show(t,s){msgTitle.textContent=t;msgText.textContent=s;msg.style.display="block";setTimeout(()=>{if(state==="play")msg.style.display="none"},1200)}
-function restart(){level=0;score=0;state="play";msg.style.display="none";makeLevel()}
+function restart(){level=0;score=0;state="play";msg.style.display="none";makeLevel();save()}
 
 function press(name,v){keys[name]=v}
 for(const [id,k] of [["left","left"],["right","right"],["jump","jump"]]){
@@ -198,7 +254,32 @@ for(const [id,k] of [["left","left"],["right","right"],["jump","jump"]]){
  b.addEventListener("pointercancel",()=>press(k,false));
  b.addEventListener("pointerleave",()=>press(k,false));
 }
-addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;if(e.key==="ArrowRight"||e.key==="d")keys.right=true;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=true;if(state==="win"&&e.key==="r")restart()});
+const weaponBtn=document.getElementById("weapon");
+const turboBtn=document.getElementById("turbo");
+function useTurbo(){
+ if(!turboAvailable || turboCooldown>0 || state!=="play") return;
+ turboAvailable=false; turboCooldown=1.05;
+ player.vx=Math.max(player.vx,520);
+ player.x+=105;
+ for(let n=0;n<12;n++) particles.push({x:player.x,y:player.y+player.h/2,vx:-80-Math.random()*150,vy:(Math.random()-.5)*90,life:.35});
+ show("⚡ TURBO!","¡Impulso hacia adelante!");
+}
+turboBtn.addEventListener("pointerdown",e=>{e.preventDefault();useTurbo()});
+function useWeapon(){
+ if(level!==1 || weaponCooldown>0 || state!=="play") return;
+ weaponSwing=0.24; weaponCooldown=0.38;
+ const cx=player.x+player.w/2, cy=player.y+player.h/2;
+ for(const o of floatingObstacles){
+   if(!o.alive) continue;
+   const dx=o.x+o.w/2-cx, dy=o.y+o.h/2-cy;
+   if(Math.hypot(dx,dy)<115 && dx>-35){
+     o.alive=false; score+=20;
+     for(let n=0;n<10;n++) particles.push({x:o.x+o.w/2,y:o.y+o.h/2,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.45});
+   }
+ }
+}
+weaponBtn.addEventListener("pointerdown",e=>{e.preventDefault();useWeapon()});
+addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;if(e.key==="ArrowRight"||e.key==="d")keys.right=true;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=true;if((e.key==="e"||e.key==="x"||e.key==="f"))useWeapon();if(state==="win"&&e.key==="r")restart()});
 addEventListener("keyup",e=>{if(e.key==="ArrowLeft"||e.key==="a")keys.left=false;if(e.key==="ArrowRight"||e.key==="d")keys.right=false;if(e.key==="ArrowUp"||e.key===" "||e.key==="w")keys.jump=false});
 addEventListener("pointerdown",e=>{if(state==="win"){restart()}});
 
@@ -333,6 +414,7 @@ function update(dt,t){
      player.vy=jump;
      player.onGround=false;
      jumpCount=1;
+     turboAvailable=true;
      jumpLock=true;
    }else if(jumpCount===1){
      player.vy=jump;
@@ -341,6 +423,8 @@ function update(dt,t){
    }
 }
  if(!keys.jump)jumpLock=false;
+ turboCooldown=Math.max(0,turboCooldown-dt);
+ if(!player.onGround && jumpCount>0 && turboCooldown<=0) turboAvailable=true;
  player.vy+=gravity*dt;
  let oldY=player.y;
  player.x+=player.vx*dt;
@@ -353,6 +437,15 @@ function update(dt,t){
      player.y=p.y-player.h;player.vy=0;player.onGround=true;jumpCount=0;
      if(p.eventKind && !p.triggered && eventCooldown<=0) triggerEvent(p);
      if(!p.eventKind && !p.move && p.x >= checkpoint.x + 220){checkpoint={x:p.x+18,y:p.y}; score+=5}
+   }
+ }
+ // Obstáculos flotantes del nivel 2: se mueven como puertas del laberinto y se cortan con el arma.
+ for(const o of floatingObstacles){
+   if(!o.alive) continue;
+   o.y += Math.sin(t/500+o.phase)*0.35;
+   o.rot += dt*1.7;
+   if(player.x+player.w>o.x&&player.x<o.x+o.w&&player.y+player.h>o.y&&player.y<o.y+o.h){
+     respawn(); break;
    }
  }
  for(const h of hazards){
@@ -446,39 +539,56 @@ function draw(t){
      ctx.closePath();ctx.fill();ctx.fillStyle="#555d70";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();
    }
  }
+ // obstáculos flotantes cortables del nivel 2
+ for(const o of floatingObstacles){
+   if(!o.alive) continue;
+   ctx.save();ctx.translate(o.x+o.w/2,o.y+o.h/2);ctx.rotate(o.rot);
+   ctx.fillStyle="#8f5d45";ctx.fillRect(-o.w/2,-o.h/2,o.w,o.h);
+   ctx.strokeStyle="#ffd27a";ctx.lineWidth=3;ctx.strokeRect(-o.w/2+3,-o.h/2+3,o.w-6,o.h-6);
+   ctx.strokeStyle="#fff5";ctx.beginPath();ctx.moveTo(-12,-12);ctx.lineTo(12,12);ctx.moveTo(12,-12);ctx.lineTo(-12,12);ctx.stroke();ctx.restore();
+ }
+ // arma / golpe del jugador
+ if(level===1 && weaponSwing>0){
+   ctx.save();ctx.translate(player.x+player.w/2,player.y+player.h/2);
+   ctx.rotate(-0.9 + (0.24-weaponSwing)/0.24*1.8);
+   ctx.strokeStyle="#ffe29a";ctx.lineWidth=6;ctx.lineCap="round";
+   ctx.beginPath();ctx.moveTo(8,2);ctx.lineTo(82,-20);ctx.stroke();
+   ctx.strokeStyle="#d7e4ff";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(12,1);ctx.lineTo(78,-19);ctx.stroke();
+   ctx.restore();
+ }
  // coins
  for(const q of coins)if(!q.got){ctx.fillStyle="#ffd45a";ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fff4";ctx.beginPath();ctx.arc(q.x-3,q.y-3,3,0,Math.PI*2);ctx.fill()}
  // goal
  ctx.fillStyle="#e9eefb";ctx.fillRect(goal.x,goal.y,5,90);ctx.fillStyle="#2ee88a";ctx.beginPath();ctx.moveTo(goal.x+5,goal.y);ctx.lineTo(goal.x+65,goal.y+20);ctx.lineTo(goal.x+5,goal.y+40);ctx.fill();
- // pixel humanoid — walking animation
+ // Avatar mejorado + ropa/skin equipada.
+ const skin=skins.find(s=>s.id===equippedSkin)||skins[0];
  const walking = Math.abs(player.vx) > 25 && player.onGround;
  const step = walking ? (Math.sin(t/85) > 0 ? 1 : -1) : 0;
  const px=Math.round(player.x), py=Math.round(player.y);
  ctx.imageSmoothingEnabled=false;
-
- // shadow
- ctx.fillStyle="#0005"; ctx.fillRect(px+4,py+player.h+2,24,5);
-
- // legs
- ctx.fillStyle="#27304a";
- ctx.fillRect(px+9,py+29,6,11); ctx.fillRect(px+18,py+29,6,11);
- if(step>0){ctx.fillRect(px+6,py+37,9,5);ctx.fillRect(px+20,py+36,9,5);}
- else if(step<0){ctx.fillRect(px+9,py+36,9,5);ctx.fillRect(px+17,py+37,9,5);}
- else {ctx.fillRect(px+7,py+39,9,4);ctx.fillRect(px+18,py+39,9,4);}
-
- // torso
- ctx.fillStyle="#5d7cff"; ctx.fillRect(px+8,py+14,16,16);
- ctx.fillStyle="#dfe6ff"; ctx.fillRect(px+11,py+17,10,9);
-
- // arms
- ctx.fillStyle="#dfe6ff";
- ctx.fillRect(px+4,py+16+(step>0?3:step<0?-2:0),4,12);
- ctx.fillRect(px+24,py+16+(step<0?3:step>0?-2:0),4,12);
-
- // head
- ctx.fillStyle="#f2c7a5"; ctx.fillRect(px+9,py+3,14,12);
- ctx.fillStyle="#1b2338"; ctx.fillRect(px+8,py+1,16,5); ctx.fillRect(px+7,py+5,4,6);
- ctx.fillStyle="#7fe7ff"; ctx.fillRect(px+17,py+7,4,3);
+ ctx.fillStyle="#0006"; ctx.fillRect(px+3,py+player.h+3,25,5);
+ // mochila
+ ctx.fillStyle="#202b46";ctx.fillRect(px+4,py+15,7,16);
+ // piernas y botas
+ ctx.fillStyle="#202941";ctx.fillRect(px+9,py+28,6,11);ctx.fillRect(px+18,py+28,6,11);
+ ctx.fillStyle="#9bb0d7";
+ if(step>0){ctx.fillRect(px+5,py+37,11,5);ctx.fillRect(px+19,py+36,10,5);}
+ else if(step<0){ctx.fillRect(px+9,py+36,10,5);ctx.fillRect(px+17,py+37,11,5);}
+ else {ctx.fillRect(px+6,py+39,10,4);ctx.fillRect(px+18,py+39,10,4);}
+ // torso / chaqueta
+ ctx.fillStyle=skin.color;ctx.fillRect(px+7,py+13,18,17);
+ ctx.fillStyle=skin.accent;ctx.fillRect(px+10,py+15,12,12);
+ ctx.fillStyle="#e7efff";ctx.fillRect(px+15,py+16,2,10);
+ // brazos articulados
+ ctx.fillStyle="#f2c7a5";ctx.fillRect(px+3,py+16+(step>0?2:step<0?-2:0),4,12);ctx.fillRect(px+25,py+16+(step<0?2:step>0?-2:0),4,12);
+ // cuello y cabeza
+ ctx.fillStyle="#f2c7a5";ctx.fillRect(px+13,py+9,7,6);ctx.fillRect(px+8,py+2,16,13);
+ // cabello
+ ctx.fillStyle="#182038";ctx.fillRect(px+7,py+1,18,6);ctx.fillRect(px+7,py+5,4,8);ctx.fillRect(px+21,py+5,4,5);
+ // visor/ojos
+ ctx.fillStyle="#7fe7ff";ctx.fillRect(px+17,py+7,4,3);ctx.fillRect(px+12,py+7,3,2);
+ // detalle de hombro
+ ctx.fillStyle=skin.accent;ctx.fillRect(px+23,py+14,3,5);
  ctx.restore();
  // prompt
  if(state==="win"){
@@ -492,75 +602,52 @@ function draw(t){
 function loop(now){const dt=Math.min(.033,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop)}
 requestAnimationFrame(loop);
 </script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
-// ===== Controles de reinicio =====
-function restartCurrentLevel(){
-  state = "play";
-  worldX = 0;
-  score = 0;
-  jumpLock = false;
-  justRespawned = false;
-  jumpCount = 0;
-
-  // Regresa al inicio del nivel actual, conservando el nivel.
-  if (typeof levelStartX !== "undefined") {
-    worldX = levelStartX;
-  }
-  if (typeof checkpoint !== "undefined") {
-    checkpoint.x = worldX;
-    checkpoint.y = 0;
-  }
-  if (typeof player !== "undefined") {
-    player.x = 120;
-    player.y = 0;
-    player.vx = 0;
-    player.vy = 0;
-    player.onGround = false;
-  }
-}
-
-function restartWholeGame(){
-  level = 0;
-  worldX = 0;
-  score = 0;
-  state = "play";
-  jumpLock = false;
-  justRespawned = false;
-  jumpCount = 0;
-
-  if (typeof checkpoint !== "undefined") {
-    checkpoint.x = 100;
-    checkpoint.y = 0;
-  }
-  if (typeof player !== "undefined") {
-    player.x = 120;
-    player.y = 0;
-    player.vx = 0;
-    player.vy = 0;
-    player.onGround = false;
-  }
-}
-
-document.getElementById("btnRestartLevel").addEventListener("click", restartCurrentLevel);
-document.getElementById("btnRestartGame").addEventListener("click", restartWholeGame);
-
-</script>
-
-<div id="restartControls" style="
-  position:fixed; right:12px; top:12px; z-index:9999;
-  display:flex; flex-direction:column; gap:8px;
-  font-family:system-ui, sans-serif;">
-  <button id="btnRestartLevel" type="button" style="
-    padding:10px 12px; border:1px solid #ffffff55; border-radius:10px;
-    background:#17202b; color:#fff; font-weight:700; font-size:13px;">
-    🔄 Reiniciar nivel
-  </button>
-  <button id="btnRestartGame" type="button" style="
-    padding:10px 12px; border:1px solid #ff666655; border-radius:10px;
-    background:#3a1720; color:#fff; font-weight:700; font-size:13px;">
-    🏠 Reiniciar juego
-  </button>
+<div id="restartControls">
+  <button id="btnRestartLevel" type="button">🔄 Reiniciar nivel</button>
+  <button id="btnRestartGame" type="button">🏠 Reiniciar juego</button>
 </div>
-
+<script>
+const shop=document.getElementById("shop"),shopGrid=document.getElementById("skinGrid"),shopCoins=document.getElementById("shopCoins");
+function renderShop(){
+ shopCoins.textContent=score;
+ shopGrid.innerHTML=skins.map(sk=>{
+   const owned=ownedSkins.includes(sk.id), equipped=equippedSkin===sk.id;
+   const label=equipped?"Equipada":owned?"Usar":`Comprar · ${sk.cost} 🪙`;
+   return `<div class="skin"><div class="skinPreview"><div class="miniAvatar"><div class="head"></div><div class="body" style="--skin:${sk.color}"></div><div class="legs"></div></div></div><b>${sk.name}</b><small>${sk.cost===0?"Gratis":"Precio: "+sk.cost+" monedas"}</small><button data-skin="${sk.id}" ${equipped?"disabled":""}>${label}</button></div>`;
+ }).join("");
+ shopGrid.querySelectorAll("button[data-skin]").forEach(btn=>btn.addEventListener("click",()=>{
+   const sk=skins.find(x=>x.id===btn.dataset.skin); if(!sk)return;
+   if(!ownedSkins.includes(sk.id)){
+     if(score<sk.cost){show("🪙 Te faltan monedas","Juega un poco más para comprar esta ropa");return;}
+     score-=sk.cost; ownedSkins.push(sk.id);
+   }
+   equippedSkin=sk.id; save(); renderShop(); show("👕 ¡Nuevo estilo!",sk.name+" equipado");
+ }));
+}
+document.getElementById("shopBtn").addEventListener("click",()=>{renderShop();shop.classList.add("open");shop.setAttribute("aria-hidden","false")});
+document.getElementById("shopClose").addEventListener("click",()=>{shop.classList.remove("open");shop.setAttribute("aria-hidden","true")});
+shop.addEventListener("pointerdown",e=>{if(e.target===shop){shop.classList.remove("open");shop.setAttribute("aria-hidden","true")}});
+if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
+function restartCurrentLevel(){
+  state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0;
+  makeLevel();
+  show("🔄 Nivel reiniciado", "Vuelves al inicio de esta zona");
+}
+function restartWholeGame(){
+  level=0; score=0; state="play"; msg.style.display="none"; keys.left=keys.right=keys.jump=false; jumpLock=false; justRespawned=false; turboAvailable=false; turboCooldown=0;
+  makeLevel(); save();
+  show("🏠 Juego reiniciado", "Has vuelto a la Zona 1");
+}
+document.getElementById("btnRestartLevel").addEventListener("click",restartCurrentLevel);
+document.getElementById("btnRestartGame").addEventListener("click",restartWholeGame);
+function updateWeaponButton(){
+  weaponBtn.classList.toggle("active",level===1);
+  turboBtn.classList.toggle("active",turboAvailable && turboCooldown<=0 && state==="play");
+  document.getElementById("shopCoins").textContent=score;
+}
+// El botón se actualiza al cambiar de zona.
+updateWeaponButton();
+setInterval(updateWeaponButton,120);
+</script>
 </body>
 </html>
