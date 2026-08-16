@@ -44,13 +44,13 @@ function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight
 addEventListener('resize',resize); resize();
 
 const levels=[
- {name:"El comienzo", obstacles:["gap"], width:1800},
- {name:"Primer reto", obstacles:["spikes","moving"], width:2100},
- {name:"No te apresures", obstacles:["gap","disappear"], width:2400},
- {name:"Zona peligrosa", obstacles:["spikes","moving","gap"], width:2700},
- {name:"La combinación", obstacles:["moving","spikes","disappear","gap"], width:3100},
- {name:"Último tramo", obstacles:["gap","moving","spikes","spikes","disappear"], width:3500},
- {name:"META", obstacles:["gap","moving","spikes","disappear","gap","moving"], width:3900}
+ {name:"El comienzo", obstacles:["gap"], width:2050},
+ {name:"Primer reto", obstacles:["spikes","moving"], width:2350},
+ {name:"No te apresures", obstacles:["gap","disappear"], width:3000},
+ {name:"Zona peligrosa", obstacles:["spikes","moving","gap"], width:3000},
+ {name:"La combinación", obstacles:["moving","spikes","disappear","gap"], width:3400},
+ {name:"Último tramo", obstacles:["gap","moving","spikes","spikes","disappear"], width:3800},
+ {name:"META", obstacles:["gap","moving","spikes","disappear","gap","moving"], width:4200}
 ];
 
 const player={x:100,y:0,w:30,h:38,vx:0,vy:0,onGround:false};
@@ -70,7 +70,7 @@ function makeLevel(){
  hazards=[];coins=[];
  let x=430;
  const difficulty=level+1;
- const GAP=Math.min(205,175+difficulty*5); // más separación sin superar el alcance real
+ const GAP=Math.min(215,172+difficulty*6); // más separación sin superar el alcance real
  const SUPPORT=Math.max(82,105-difficulty*3);
  const REST=Math.max(85,125-difficulty*5);
 
@@ -94,12 +94,21 @@ function makeLevel(){
  const pattern=patterns[Math.min(level,patterns.length-1)];
  // Cada zona tiene un "evento imposible" diferente. Siempre aparece con aviso
  // y deja una ventana de reacción, para que sea sorprendente pero físicamente evitable.
- const zoneEvent = ['shift','falling','popspikes','blast','wheel','saw','chaos'][Math.min(level,6)];
- let eventPlaced=false;
- const eventFor = () => {
-   if(eventPlaced) return null;
-   eventPlaced=true;
-   return zoneEvent;
+ // Varias trampas dinámicas por nivel. Todas tienen aviso y una ventana de reacción.
+ const eventSets = [
+   ['collapse','narrow'],
+   ['shift','popspikes','collapse'],
+   ['falling','blast','narrow'],
+   ['collapse','saw','falling'],
+   ['popspikes','narrow','blast','collapse'],
+   ['shift','falling','saw','collapse'],
+   ['collapse','giantsaw','ceiling','popspikes','narrow']
+ ];
+ const eventSet=eventSets[Math.min(level,eventSets.length-1)];
+ let eventIndex=0;
+ const eventFor=()=>{
+   if(eventIndex>=eventSet.length) return null;
+   return eventSet[eventIndex++];
  };
 
  pattern.forEach((type,i)=>{
@@ -113,14 +122,14 @@ function makeLevel(){
      hazards.push({type:'gap',x:x+SUPPORT+8,w:GAP-(SUPPORT+8),y:base+5,h:90});
      // Obstáculos progresivos en la llegada: cuanto más avanzada la zona, más pinchos.
      support(landingX,base,SUPPORT+20,eventFor());
-     spikes(landingX+SUPPORT-18,base,Math.min(3,1+Math.floor(level/2)));
+     spikes(landingX+SUPPORT-18,base,Math.min(4,1+Math.floor(level/1.8)));
      coins.push({x:landingX+40,y:base-62,r:9});
      x=landingX+SUPPORT+55;
    }
 
    if(type==='spikes'){
      support(x,base,SUPPORT+20);
-     const count=Math.min(4,1+Math.floor(level/2));
+     const count=Math.min(5,1+Math.floor(level/1.8));
      spikes(x+35,base,count);
      // Pequeño apoyo de salida: requiere saltar por encima de la cadena.
      const next=x+35+count*28+28;
@@ -134,7 +143,7 @@ function makeLevel(){
      platforms.push({x:mx,y:base-35,w:100, h:40, move:true,startX:mx,range:35,phase:i});
      // Apoyo final más ancho para que el reto sea de precisión, no de suerte.
      support(mx+125,base,SUPPORT+18,eventFor());
-     spikes(mx+70,base,level>=4?2:1);
+     spikes(mx+70,base,level>=5?3:(level>=3?2:1));
      coins.push({x:mx+50,y:base-88,r:9});
      x=mx+SUPPORT+85;
    }
@@ -149,7 +158,8 @@ function makeLevel(){
 
    // Separación visual entre retos. No es una zona regalada: es el espacio necesario
    // para preparar el siguiente salto y evitar que dos obstáculos se mezclen accidentalmente.
-   if(!eventPlaced) support(x,base,REST,eventFor());
+   const restEvent=eventFor();
+   if(restEvent) support(x,base,REST,restEvent);
    else rest(x,base,REST);
    x += 55 + difficulty*12;
  });
@@ -195,61 +205,72 @@ let last=performance.now();
 
 function triggerEvent(p){
  if(!p.eventKind || p.triggered) return;
- p.triggered=true;
- eventCooldown=0.45;
- const x=p.x+p.w*0.55, y=p.y;
- const k=p.eventKind;
+ p.triggered=true; eventCooldown=0.35;
+ const x=p.x+p.w*0.55,y=p.y,k=p.eventKind;
 
- if(k==='shift'){
-   p.shiftStart=p.x; p.shiftTarget=p.x+90+level*8; p.shiftTime=0;
-   p.shiftSpeed=135+level*8; p.shiftActive=true;
-   show("⚠️ ¡El suelo se mueve!","La plataforma acaba de cambiar de lugar");
+ if(k==='collapse'){
+   p.collapseDelay=0.42;p.collapseActive=true;p.collapseVy=35;
+   show("⚠️ ¡EL APOYO FALLA!","Parecía seguro… ¡salta ahora!");
  }
- if(k==='falling'){
-   activeEvents.push({kind:'rock',x:x+95,y:-80,vx:0,vy:60+level*8,r:18,armed:true});
-   show("☄️ ¡Mira arriba!","Algo acaba de caer del cielo");
+ if(k==='narrow'){
+   p.narrowDelay=0.32;p.narrowActive=true;p.originalW=p.w;
+   show("😈 ¡SE ESTRECHA!","El punto de apoyo se está haciendo pequeño");
+ }
+ if(k==='shift'){
+   p.shiftStart=p.x;p.shiftTarget=p.x+70+level*7;p.shiftTime=0;
+   p.shiftSpeed=135+level*8;p.shiftActive=true;
+   show("⚠️ ¡EL SUELO SE MUEVE!","La plataforma acaba de cambiar de lugar");
+ }
+ if(k==='falling'||k==='ceiling'){
+   activeEvents.push({kind:k==='ceiling'?'ceiling':'rock',x:x+95,y:-90,
+     vx:(level%2?-25:20),vy:45+level*6,r:k==='ceiling'?28:18,armed:true});
+   show("☄️ ¡MIRA ARRIBA!","Algo acaba de caer del cielo");
  }
  if(k==='popspikes'){
-   activeEvents.push({kind:'popspikes',x:x+35,y:y,w:70,h:26,delay:0.48,active:false});
+   activeEvents.push({kind:'popspikes',x:x+28,y:y,w:Math.max(58,p.w-20),h:26,delay:0.48,active:false});
    show("⚠️ ¡TRAMPA!","Los pinchos van a aparecer");
  }
  if(k==='blast'){
-   activeEvents.push({kind:'blast',x:x+85,y:y-22,r:0,maxR:58+level*4,delay:0.55,life:0.42,armed:false});
-   show("💥 ¡EXPLOSIÓN!","Aléjate del punto marcado");
+   activeEvents.push({kind:'blast',x:x+55,y:y-18,r:0,maxR:54+level*5,delay:0.52,life:0.44,armed:false});
+   show("💥 ¡REVIENTA!","Aléjate del punto marcado");
  }
  if(k==='wheel'){
-   activeEvents.push({kind:'wheel',x:x+125,y:y-180,vx:-110-level*8,vy:0,r:24,spin:0,armed:true});
+   activeEvents.push({kind:'wheel',x:x+125,y:y-155,vx:-110-level*8,vy:0,r:24,spin:0,armed:true});
    show("🛞 ¡RUEDA!","Algo viene rodando desde arriba");
  }
- if(k==='saw'){
-   activeEvents.push({kind:'saw',x:x+150,y:y-120,vx:-80-level*8,vy:0,r:22,spin:0,armed:true});
-   show("⚙️ ¡SIERRA!","Encuentra el hueco y pasa");
- }
- if(k==='chaos'){
-   activeEvents.push({kind:'rock',x:x+110,y:-70,vx:-45,vy:70,r:16,armed:true});
-   activeEvents.push({kind:'saw',x:x+180,y:y-125,vx:-100,vy:0,r:21,spin:0,armed:true});
-   activeEvents.push({kind:'popspikes',x:x+30,y:y,w:74,h:26,delay:0.65,active:false});
-   show("☠️ ¡CAOS!","Todo cambió. Mantén la calma");
+ if(k==='saw'||k==='giantsaw'){
+   activeEvents.push({kind:'saw',x:x+185,y:y-(k==='giantsaw'?48:95),
+     vx:-105-level*9,vy:0,r:k==='giantsaw'?34:22,spin:0,
+     armed:true,delay:k==='giantsaw'?0.35:0});
+   show("⚙️ ¡DISCO!","El paso se cerrará: salta o busca el hueco");
  }
 }
-
 function eventHit(e){
- const px=player.x+player.w/2, py=player.y+player.h/2;
- if(e.kind==='popspikes' && e.active){
-   return player.x+player.w>e.x && player.x<e.x+e.w &&
-          player.y+player.h>e.y-e.h && player.y<e.y;
- }
- if(e.kind==='blast' && e.armed){
-   return Math.hypot(px-e.x,py-e.y)<e.r+14;
- }
- if(e.kind==='rock' || e.kind==='wheel' || e.kind==='saw'){
+ const px=player.x+player.w/2,py=player.y+player.h/2;
+ if(e.kind==='popspikes'&&e.active)
+   return player.x+player.w>e.x&&player.x<e.x+e.w&&player.y+player.h>e.y-e.h&&player.y<e.y;
+ if(e.kind==='blast'&&e.armed) return Math.hypot(px-e.x,py-e.y)<e.r+14;
+ if(e.kind==='rock'||e.kind==='wheel'||e.kind==='saw'){
+   if(e.delay>0)return false;
    return Math.hypot(px-e.x,py-e.y)<e.r+17;
  }
+ if(e.kind==='ceiling'&&e.armed)
+   return player.x+player.w>e.x-e.r&&player.x<e.x+e.r&&player.y+player.h>e.y-e.r&&player.y<e.y+e.r;
  return false;
 }
-
 function updateEvents(dt){
  eventCooldown=Math.max(0,eventCooldown-dt);
+
+ for(const p of platforms){
+   if(p.collapseActive){
+     p.collapseDelay-=dt;
+     if(p.collapseDelay<=0){p.y+=p.collapseVy*dt;p.collapseVy+=950*dt;if(p.y>H+180)p.dead=true;}
+   }
+   if(p.narrowActive){
+     p.narrowDelay-=dt;
+     if(p.narrowDelay<=0){p.w=Math.max(58,p.w-145*dt);if(p.w<=58)p.narrowActive=false;}
+   }
+ }
 
  for(const e of activeEvents){
    if(e.kind==='popspikes'){
@@ -271,7 +292,10 @@ function updateEvents(dt){
      e.vy+=900*dt; e.x+=e.vx*dt; e.y+=e.vy*dt; e.spin+=dt*7;
    }
    if(e.kind==='saw'){
-     e.x+=e.vx*dt; e.spin+=dt*10;
+     e.delay=Math.max(0,(e.delay||0)-dt);e.x+=e.vx*dt;e.spin+=dt*10;
+   }
+   if(e.kind==='ceiling'){
+     e.y+=e.vy*dt;e.vy+=1250*dt;if(e.y>H*.66)e.armed=false;
    }
  }
  activeEvents=activeEvents.filter(e=>{
@@ -296,7 +320,7 @@ function update(dt,t){
    }
  });
  for(const p of platforms){
-   if(p.shiftActive && player.onGround && player.x+player.w>p.x && player.x<p.x+p.w){
+   if(!p.dead && p.shiftActive && player.onGround && player.x+player.w>p.x && player.x<p.x+p.w){
      player.x += (p.x-(p.prevX||p.x));
    }
  }
@@ -311,6 +335,7 @@ function update(dt,t){
  player.y+=player.vy*dt;
  player.onGround=false;
  for(const p of platforms){
+   if(p.dead)continue;
    if(p.vanish && p.t<=0)continue;
    if(player.x+player.w>p.x&&player.x<p.x+p.w&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.vy>=0){
      player.y=p.y-player.h;player.vy=0;player.onGround=true;
@@ -353,10 +378,17 @@ function draw(t){
  for(let x=Math.floor(worldX/300)*300;x<worldX+W+300;x+=300){ctx.fillStyle="#ffffff08";ctx.fillRect(x,100,2,450)}
  // platforms
  for(const p of platforms){
+   if(p.dead)continue;
    if(p.vanish&&p.t<=0)continue;
    ctx.fillStyle=p.vanish?"#6e8cff":p.move?"#55d6b0":"#53627f";
    ctx.fillRect(p.x,p.y,p.w,p.h);
    ctx.fillStyle="#ffffff30";ctx.fillRect(p.x,p.y,p.w,5);
+ }
+ // señales de las trampas dinámicas: el reto sorprende, pero no depende de azar ciego.
+ for(const p of platforms){
+   if(p.dead)continue;
+   if(p.collapseActive){ctx.strokeStyle="#ffb347";ctx.lineWidth=2;ctx.strokeRect(p.x,p.y-7,p.w,4);}
+   if(p.narrowActive){ctx.strokeStyle="#c58cff";ctx.lineWidth=2;ctx.strokeRect(p.x,p.y-7,p.w,4);}
  }
  // hazards
  for(const h of hazards)if(h.type==="spikes"){
@@ -382,6 +414,10 @@ function draw(t){
    if(e.kind==='rock'){
      ctx.fillStyle="#7c6757";ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fill();
      ctx.fillStyle="#b69b82";ctx.beginPath();ctx.arc(e.x-6,e.y-6,5,0,Math.PI*2);ctx.fill();
+   }
+   if(e.kind==='ceiling'){
+     ctx.fillStyle="#5e6576";ctx.fillRect(e.x-e.r,e.y-e.r,e.r*2,e.r*1.45);
+     ctx.fillStyle="#9299aa";ctx.fillRect(e.x-e.r,e.y-e.r,e.r*2,5);
    }
    if(e.kind==='wheel'){
      ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.spin);ctx.strokeStyle="#aeb7c9";ctx.lineWidth=7;
